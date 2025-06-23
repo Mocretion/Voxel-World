@@ -1,0 +1,3 @@
+D:/VS C# Projects/Voxel World/Voxel World/build/CMakeFiles/VulkanApp.dir
+D:/VS C# Projects/Voxel World/Voxel World/build/CMakeFiles/ALL_BUILD.dir
+D:/VS C# Projects/Voxel World/Voxel World/build/CMakeFiles/ZERO_CHECK.dir

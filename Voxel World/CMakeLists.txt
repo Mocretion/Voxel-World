@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.16)
+project(VulkanApp)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_TOOLCHAIN_FILE "D:/VS C# Projects/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
+# Find Vulkan
+find_package(Vulkan REQUIRED)
+
+# Find SDL2 (vcpkg style)
+find_package(SDL2 CONFIG REQUIRED)
+
+# Create executable
+add_executable(${PROJECT_NAME} "main.cpp")
+
+# Link libraries (vcpkg style)
+target_link_libraries(${PROJECT_NAME} 
+    Vulkan::Vulkan
+    SDL2::SDL2
+    SDL2::SDL2main
+)
+
+# Set subsystem to console (optional, for debugging)
+if(WIN32)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+    )
+
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${VCPKG_ROOT}/installed/x64-windows/bin/SDL2.dll"
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    )
+endif()
