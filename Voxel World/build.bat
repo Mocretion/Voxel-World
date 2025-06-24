@@ -10,5 +10,7 @@ if %errorlevel% neq 0 (
 )
 cmake --build .
 cd "D:\VS C# Projects\Voxel World\Voxel World\build\Debug"
+mkdir "shaders"
+xcopy /s "D:\VS C# Projects\Voxel World\Voxel World\shaders" "D:\VS C# Projects\Voxel World\Voxel World\build\Debug\shaders"
 VoxelWorld.exe
 pause

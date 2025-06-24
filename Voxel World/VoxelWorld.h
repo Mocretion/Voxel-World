@@ -10,6 +10,7 @@
 #include <iostream>
 #include <optional>
 #include <set>
+#include <fstream>
 
 #include "Vertex.h"
 
@@ -51,6 +52,7 @@ private:
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> imagesInFlight; // Track which frame is using each swapchain image
     uint32_t currentFrame = 0;
 
     // Buffers
