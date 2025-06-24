@@ -4,6 +4,9 @@
     <ClCompile Include="D:\VS C# Projects\Voxel World\Voxel World\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\VS C# Projects\Voxel World\Voxel World\VoxelWorld.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\VS C# Projects\Voxel World\Voxel World\CMakeLists.txt" />

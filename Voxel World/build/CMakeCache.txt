@@ -77,7 +77,7 @@ CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO:STRING=/debug /INCREMENTAL
 CMAKE_FIND_PACKAGE_REDIRECTS_DIR:STATIC=D:/VS C# Projects/Voxel World/Voxel World/build/CMakeFiles/pkgRedirects
 
 //Install path prefix, prepended onto install directories.
-CMAKE_INSTALL_PREFIX:PATH=C:/Program Files (x86)/VulkanApp
+CMAKE_INSTALL_PREFIX:PATH=C:/Program Files (x86)/VoxelWorld
 
 //Path to a program.
 CMAKE_LINKER:FILEPATH=D:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe
@@ -112,7 +112,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=VulkanApp
+CMAKE_PROJECT_NAME:STATIC=VoxelWorld
 
 //RC compiler
 CMAKE_RC_COMPILER:FILEPATH=C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/rc.exe
@@ -179,7 +179,8 @@ CMAKE_STATIC_LINKER_FLAGS_RELEASE:STRING=
 // during RELWITHDEBINFO builds.
 CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
-CMAKE_TOOLCHAIN_FILE:STRING=D:/VS C# Projects/vcpkg/scripts/buildsystems/vcpkg.cmake
+//The CMake toolchain file
+CMAKE_TOOLCHAIN_FILE:FILEPATH=D:/VS C# Projects/vcpkg/scripts/buildsystems/vcpkg.cmake
 
 //If this value is on, makefiles will be generated without the
 // .SILENT directive, and all commands will be echoed to the console
@@ -225,13 +226,13 @@ VCPKG_TRACE_FIND_PACKAGE:BOOL=OFF
 VCPKG_VERBOSE:BOOL=OFF
 
 //Value Computed by CMake
-VulkanApp_BINARY_DIR:STATIC=D:/VS C# Projects/Voxel World/Voxel World/build
+VoxelWorld_BINARY_DIR:STATIC=D:/VS C# Projects/Voxel World/Voxel World/build
 
 //Value Computed by CMake
-VulkanApp_IS_TOP_LEVEL:STATIC=ON
+VoxelWorld_IS_TOP_LEVEL:STATIC=ON
 
 //Value Computed by CMake
-VulkanApp_SOURCE_DIR:STATIC=D:/VS C# Projects/Voxel World/Voxel World
+VoxelWorld_SOURCE_DIR:STATIC=D:/VS C# Projects/Voxel World/Voxel World
 
 //Path to a program.
 Vulkan_GLSLANG_VALIDATOR_EXECUTABLE:FILEPATH=D:/VulkanSDK/1.4.313.2/Bin/glslangValidator.exe
@@ -262,6 +263,9 @@ Z_VCPKG_PWSH_PATH:FILEPATH=Z_VCPKG_PWSH_PATH-NOTFOUND
 //The directory which contains the installed libraries for each
 // triplet
 _VCPKG_INSTALLED_DIR:PATH=D:/VS C# Projects/vcpkg/installed
+
+//The directory containing a CMake configuration file for glm.
+glm_DIR:PATH=D:/VS C# Projects/vcpkg/installed/x64-windows/share/glm
 
 
 ########################

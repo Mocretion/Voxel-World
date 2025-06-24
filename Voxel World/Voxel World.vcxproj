@@ -128,6 +128,12 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="build.bat" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Vertex.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

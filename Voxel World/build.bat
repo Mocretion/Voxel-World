@@ -10,5 +10,5 @@ if %errorlevel% neq 0 (
 )
 cmake --build .
 cd "D:\VS C# Projects\Voxel World\Voxel World\build\Debug"
-VulkanApp.exe
+VoxelWorld.exe
 pause
