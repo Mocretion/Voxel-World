@@ -96,6 +96,9 @@ private:
     float titleUpdateTimer = 0.0f;
     const float TITLE_UPDATE_INTERVAL = 0.1f; // Update 10 times per second
 
+	bool wireframeMode = false; // Toggle wireframe mode
+	void recreateGraphicsPipeline();
+
     // Helper struct for queue families
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;

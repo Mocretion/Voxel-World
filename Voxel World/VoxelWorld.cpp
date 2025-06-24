@@ -160,6 +160,12 @@ void VoxelWorld::handleInput()
 
     // Process keyboard input for camera movement
     camera.processKeyboard(keyState, deltaTime);
+
+    if (keyState[SDL_SCANCODE_M])
+    {
+        wireframeMode = !wireframeMode;
+        recreateGraphicsPipeline();
+    }
 }
 
 void VoxelWorld::createSurface()
@@ -644,7 +650,7 @@ void VoxelWorld::createGraphicsPipeline()
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.depthClampEnable = VK_FALSE;
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.polygonMode = wireframeMode ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -703,6 +709,18 @@ void VoxelWorld::createGraphicsPipeline()
 
     vkDestroyShaderModule(device, fragShaderModule, nullptr);
     vkDestroyShaderModule(device, vertShaderModule, nullptr);
+}
+
+void VoxelWorld::recreateGraphicsPipeline()
+{
+    // Wait for device to be idle before destroying pipeline
+    vkDeviceWaitIdle(device);
+
+    // Destroy the old pipeline
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+
+    // Create new pipeline with updated wireframe setting
+    createGraphicsPipeline();
 }
 
 void VoxelWorld::createFramebuffers()
@@ -1228,7 +1246,7 @@ void VoxelWorld::cleanupSwapChain()
         vkDestroyImageView(device, imageView, nullptr);
     }
 
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+
 	vkDestroySwapchainKHR(device, swapChain, nullptr);
 }
 
