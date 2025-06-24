@@ -22,9 +22,10 @@ public:
 
 private:
     // Window settings
-    const uint32_t WINDOW_WIDTH = 800;
-    const uint32_t WINDOW_HEIGHT = 600;
+    uint32_t currentWindowWidth = 800;
+    uint32_t currentWindowHeight = 600;
     const int MAX_FRAMES_IN_FLIGHT = 2;
+	bool framebufferResized = false; // Track if framebuffer size changed
 
     // SDL and Vulkan objects
     SDL_Window* window = nullptr;
@@ -169,4 +170,8 @@ private:
     bool hasStencilComponent(VkFormat format);
     void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
     VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+
+	void recreateSwapChain();
+	void cleanupSwapChain();
+	void updateWindowSize();
 };

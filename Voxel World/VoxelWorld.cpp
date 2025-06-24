@@ -40,7 +40,7 @@ void VoxelWorld::initWindow()
         "Voxel World",
         SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED,
-        WINDOW_WIDTH, WINDOW_HEIGHT,
+        currentWindowWidth, currentWindowHeight,
         SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
     );
 
@@ -48,6 +48,8 @@ void VoxelWorld::initWindow()
     {
         throw std::runtime_error("Failed to create window: " + std::string(SDL_GetError()));
     }
+
+    updateWindowSize();
 
     // Initialize camera at a good starting position
     camera = Camera(glm::vec3(16.0f, 10.0f, 16.0f));
@@ -350,16 +352,18 @@ VkExtent2D VoxelWorld::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabili
 {
     if (capabilities.currentExtent.width != UINT32_MAX)
     {
+        currentWindowWidth = capabilities.currentExtent.width;
+        currentWindowHeight = capabilities.currentExtent.height;
+        std::cout << "Using Vulkan reported extent: " << currentWindowWidth << "x" << currentWindowHeight << std::endl;
         return capabilities.currentExtent;
     }
     else
     {
-        int width, height;
-        SDL_Vulkan_GetDrawableSize(window, &width, &height);
+        updateWindowSize();
 
         VkExtent2D actualExtent = {
-            static_cast<uint32_t>(width),
-            static_cast<uint32_t>(height)
+            static_cast<uint32_t>(currentWindowWidth),
+            static_cast<uint32_t>(currentWindowHeight)
         };
 
         actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
@@ -620,14 +624,14 @@ void VoxelWorld::createGraphicsPipeline()
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = (float)swapChainExtent.width;
-    viewport.height = (float)swapChainExtent.height;
+    viewport.width = (float)currentWindowWidth;
+    viewport.height = (float)currentWindowHeight;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = { 0, 0 };
-    scissor.extent = swapChainExtent;
+    scissor.extent = { currentWindowWidth, currentWindowHeight };
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1004,6 +1008,16 @@ void VoxelWorld::mainLoop()
                 running = false;
             }
 
+            if(event.type == SDL_WINDOWEVENT)
+            {
+                if (event.window.event == SDL_WINDOWEVENT_RESIZED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+                {
+                    // Handle window resize
+                    std::cout << "Window resized" << std::endl;
+					framebufferResized = true;
+                }
+			}
+
             if (event.type == SDL_KEYDOWN)
             {
                 if (event.key.keysym.sym == SDLK_ESCAPE)
@@ -1084,7 +1098,13 @@ void VoxelWorld::updateUniformBuffer(uint32_t currentImage)
     // Use camera's view matrix
     ubo.view = camera.getViewMatrix();
 
-    ubo.proj = glm::perspective(glm::radians(75.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
+	float aspect = static_cast<float>(currentWindowWidth) / static_cast<float>(currentWindowHeight);
+
+    ubo.proj = glm::perspective(glm::radians(80.0f),  // FOV
+        aspect,  // Aspect ratio
+		0.1f,  // Near plane
+		1000.0f  // Far plane
+    );
 
     // GLM was originally designed for OpenGL, where the Y coordinate of the clip coordinates is inverted
     ubo.proj[1][1] *= -1;
@@ -1101,6 +1121,7 @@ void VoxelWorld::drawFrame()
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
+		recreateSwapChain();
         return;
     }
     else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
@@ -1157,8 +1178,10 @@ void VoxelWorld::drawFrame()
 
     result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
     {
+		framebufferResized = false;
+		recreateSwapChain();
         // Handle swapchain recreation here in a full application
     }
     else if (result != VK_SUCCESS)
@@ -1167,6 +1190,54 @@ void VoxelWorld::drawFrame()
     }
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void VoxelWorld::recreateSwapChain()
+{
+	updateWindowSize();
+    while(currentWindowWidth == 0 || currentWindowHeight == 0)
+    {
+        SDL_WaitEvent(nullptr); // Wait for a window event to ensure we get valid dimensions
+        updateWindowSize();
+	}
+
+	vkDeviceWaitIdle(device);
+
+    cleanupSwapChain();
+
+	createSwapChain();
+	createImageViews();
+	createDepthResources();
+    createGraphicsPipeline();
+	createFramebuffers();
+}
+
+void VoxelWorld::cleanupSwapChain()
+{
+	vkDestroyImageView(device, depthImageView, nullptr);
+	vkDestroyImage(device, depthImage, nullptr);
+	vkFreeMemory(device, depthImageMemory, nullptr);
+
+    for(auto framebuffer : swapChainFramebuffers)
+    {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
+	}
+
+    for (auto imageView : swapChainImageViews)
+    {
+        vkDestroyImageView(device, imageView, nullptr);
+    }
+
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+	vkDestroySwapchainKHR(device, swapChain, nullptr);
+}
+
+void VoxelWorld::updateWindowSize()
+{
+    int width, height;
+    SDL_GetWindowSize(window, &width, &height);
+    currentWindowWidth = static_cast<uint32_t>(width);
+    currentWindowHeight = static_cast<uint32_t>(height);
 }
 
 void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
@@ -1201,7 +1272,6 @@ void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t ima
     VkDeviceSize offsets[] = { 0 };
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-    // CHANGE THIS LINE: VK_INDEX_TYPE_UINT16 to VK_INDEX_TYPE_UINT32
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
