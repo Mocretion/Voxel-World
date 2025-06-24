@@ -1176,7 +1176,7 @@ void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t ima
 
     if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
     {
-        throw std::runtime_error("Failed to begin recording command buffer!");
+        throw std::runtime_error("failed to begin recording command buffer!");
     }
 
     VkRenderPassBeginInfo renderPassInfo{};
@@ -1185,8 +1185,6 @@ void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t ima
     renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
     renderPassInfo.renderArea.offset = { 0, 0 };
     renderPassInfo.renderArea.extent = swapChainExtent;
-
-    // VkClearValue clearColor = { {{0.1f, 0.1f, 0.2f, 1.0f}} }; // Dark blue background
 
     std::array<VkClearValue, 2> clearValues{};
     clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
@@ -1203,18 +1201,18 @@ void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t ima
     VkDeviceSize offsets[] = { 0 };
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-    vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+    // CHANGE THIS LINE: VK_INDEX_TYPE_UINT16 to VK_INDEX_TYPE_UINT32
+    vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-    // Draw all the cubes using our world indices
     vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(worldIndices.size()), 1, 0, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
     {
-        throw std::runtime_error("Failed to record command buffer!");
+        throw std::runtime_error("failed to record command buffer!");
     }
 }
 

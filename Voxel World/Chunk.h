@@ -17,7 +17,7 @@ public:
 
     // Get the generated vertices and indices
     const std::vector<Vertex>& getVertices() const { return vertices; }
-    const std::vector<uint16_t>& getIndices() const { return indices; }
+    const std::vector<uint32_t>& getIndices() const { return indices; }
 
     // Get chunk position
     int getChunkX() const { return chunkX; }
@@ -38,7 +38,7 @@ private:
 
     // Generated mesh data
     std::vector<Vertex> vertices;
-    std::vector<uint16_t> indices;
+    std::vector<uint32_t> indices;
 
     // Helper function to add a cube at world position
     void addCube(float worldX, float worldY, float worldZ, glm::vec3 color);
@@ -57,7 +57,7 @@ public:
     std::vector<Vertex> getAllVertices() const;
 
     // Get all indices from all chunks (for rendering)
-    std::vector<uint16_t> getAllIndices() const;
+    std::vector<uint32_t> getAllIndices() const;
 
     // Get chunk at specific chunk coordinates
     Chunk* getChunk(int chunkX, int chunkZ);

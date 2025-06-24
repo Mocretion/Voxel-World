@@ -70,120 +70,111 @@ void Chunk::generateMesh()
 
 void Chunk::addCubeWithCulling(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localZ)
 {
-    uint16_t baseIndex = static_cast<uint16_t>(vertices.size());
-
     // Check which faces should be rendered based on neighbors
     bool renderFront = !hasCubeAt(localX, localZ + 1);  // +Z direction
     bool renderBack = !hasCubeAt(localX, localZ - 1);   // -Z direction
     bool renderRight = !hasCubeAt(localX + 1, localZ);  // +X direction
     bool renderLeft = !hasCubeAt(localX - 1, localZ);   // -X direction
     bool renderTop = true;    // Always render top (no cubes above in a floor)
-    bool renderBottom = true; // Never render bottom (ground level)
+    bool renderBottom = true; // Always render bottom for now (you might want to change this)
 
-    std::vector<Vertex> faceVertices;
-    std::vector<uint16_t> faceIndices;
-
-    // Only add vertices and indices for faces that should be rendered
+    // Add faces one by one, calculating the correct base index for each face
 
     if (renderFront)
     {
         // Front face (Z+) vertices
-        uint16_t frontBase = static_cast<uint16_t>(faceVertices.size());
-        faceVertices.insert(faceVertices.end(), {
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size()); // Changed to uint32_t
+        vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
             {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
             {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
             {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color}
             });
-        faceIndices.insert(faceIndices.end(), {
-            static_cast<uint16_t>(baseIndex + frontBase + 0), static_cast<uint16_t>(baseIndex + frontBase + 1), static_cast<uint16_t>(baseIndex + frontBase + 2),
-            static_cast<uint16_t>(baseIndex + frontBase + 2), static_cast<uint16_t>(baseIndex + frontBase + 3), static_cast<uint16_t>(baseIndex + frontBase + 0)
+        indices.insert(indices.end(), {
+            baseIndex + 0, baseIndex + 1, baseIndex + 2,
+            baseIndex + 2, baseIndex + 3, baseIndex + 0
             });
     }
 
     if (renderBack)
     {
         // Back face (Z-) vertices
-        uint16_t backBase = static_cast<uint16_t>(faceVertices.size());
-        faceVertices.insert(faceVertices.end(), {
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+        vertices.insert(vertices.end(), {
             {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
             {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
             {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},
             {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color}
             });
-        faceIndices.insert(faceIndices.end(), {
-            static_cast<uint16_t>(baseIndex + backBase + 0), static_cast<uint16_t>(baseIndex + backBase + 1), static_cast<uint16_t>(baseIndex + backBase + 2),
-            static_cast<uint16_t>(baseIndex + backBase + 2), static_cast<uint16_t>(baseIndex + backBase + 3), static_cast<uint16_t>(baseIndex + backBase + 0)
+        indices.insert(indices.end(), {
+            baseIndex + 0, baseIndex + 1, baseIndex + 2,
+            baseIndex + 2, baseIndex + 3, baseIndex + 0
             });
     }
 
     if (renderLeft)
     {
         // Left face (X-) vertices
-        uint16_t leftBase = static_cast<uint16_t>(faceVertices.size());
-        faceVertices.insert(faceVertices.end(), {
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+        vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
             {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
             {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
             {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color}
             });
-        faceIndices.insert(faceIndices.end(), {
-            static_cast<uint16_t>(baseIndex + leftBase + 0), static_cast<uint16_t>(baseIndex + leftBase + 1), static_cast<uint16_t>(baseIndex + leftBase + 2),
-            static_cast<uint16_t>(baseIndex + leftBase + 2), static_cast<uint16_t>(baseIndex + leftBase + 3), static_cast<uint16_t>(baseIndex + leftBase + 0)
+        indices.insert(indices.end(), {
+            baseIndex + 0, baseIndex + 1, baseIndex + 2,
+            baseIndex + 2, baseIndex + 3, baseIndex + 0
             });
     }
 
     if (renderRight)
     {
         // Right face (X+) vertices
-        uint16_t rightBase = static_cast<uint16_t>(faceVertices.size());
-        faceVertices.insert(faceVertices.end(), {
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+        vertices.insert(vertices.end(), {
             {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
             {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
             {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},
             {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color}
             });
-        faceIndices.insert(faceIndices.end(), {
-            static_cast<uint16_t>(baseIndex + rightBase + 0), static_cast<uint16_t>(baseIndex + rightBase + 1), static_cast<uint16_t>(baseIndex + rightBase + 2),
-            static_cast<uint16_t>(baseIndex + rightBase + 2), static_cast<uint16_t>(baseIndex + rightBase + 3), static_cast<uint16_t>(baseIndex + rightBase + 0)
+        indices.insert(indices.end(), {
+            baseIndex + 0, baseIndex + 1, baseIndex + 2,
+            baseIndex + 2, baseIndex + 3, baseIndex + 0
             });
     }
 
     if (renderTop)
     {
         // Top face (Y+) vertices
-        uint16_t topBase = static_cast<uint16_t>(faceVertices.size());
-        faceVertices.insert(faceVertices.end(), {
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+        vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
             {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
             {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},
             {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color}
             });
-        faceIndices.insert(faceIndices.end(), {
-            static_cast<uint16_t>(baseIndex + topBase + 0), static_cast<uint16_t>(baseIndex + topBase + 1), static_cast<uint16_t>(baseIndex + topBase + 2),
-            static_cast<uint16_t>(baseIndex + topBase + 2), static_cast<uint16_t>(baseIndex + topBase + 3), static_cast<uint16_t>(baseIndex + topBase + 0)
+        indices.insert(indices.end(), {
+            baseIndex + 0, baseIndex + 1, baseIndex + 2,
+            baseIndex + 2, baseIndex + 3, baseIndex + 0
             });
     }
 
     if (renderBottom)
     {
         // Bottom face (Y-) vertices
-        uint16_t bottomBase = static_cast<uint16_t>(faceVertices.size());
-        faceVertices.insert(faceVertices.end(), {
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+        vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
             {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
             {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
             {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color}
             });
-        faceIndices.insert(faceIndices.end(), {
-            static_cast<uint16_t>(baseIndex + bottomBase + 0), static_cast<uint16_t>(baseIndex + bottomBase + 1), static_cast<uint16_t>(baseIndex + bottomBase + 2),
-            static_cast<uint16_t>(baseIndex + bottomBase + 2), static_cast<uint16_t>(baseIndex + bottomBase + 3), static_cast<uint16_t>(baseIndex + bottomBase + 0)
+        indices.insert(indices.end(), {
+            baseIndex + 0, baseIndex + 1, baseIndex + 2,
+            baseIndex + 2, baseIndex + 3, baseIndex + 0
             });
     }
-
-    // Add the face vertices and indices to the chunk
-    vertices.insert(vertices.end(), faceVertices.begin(), faceVertices.end());
-    indices.insert(indices.end(), faceIndices.begin(), faceIndices.end());
 }
 
 void Chunk::addCube(float worldX, float worldY, float worldZ, glm::vec3 color)
@@ -283,10 +274,10 @@ std::vector<Vertex> ChunkManager::getAllVertices() const
     return allVertices;
 }
 
-std::vector<uint16_t> ChunkManager::getAllIndices() const
+std::vector<uint32_t> ChunkManager::getAllIndices() const
 {
-    std::vector<uint16_t> allIndices;
-    uint16_t vertexOffset = 0;
+    std::vector<uint32_t> allIndices;
+    uint32_t vertexOffset = 0;
 
     // Combine indices from all chunks, adjusting for vertex offset
     for (const auto& chunk : chunks)
@@ -294,13 +285,13 @@ std::vector<uint16_t> ChunkManager::getAllIndices() const
         const auto& chunkIndices = chunk.getIndices();
 
         // Add indices with offset to account for previous chunks' vertices
-        for (uint16_t index : chunkIndices)
+        for (uint32_t index : chunkIndices)
         {
             allIndices.push_back(index + vertexOffset);
         }
 
         // Update offset for next chunk
-        vertexOffset += static_cast<uint16_t>(chunk.getVertices().size());
+        vertexOffset += static_cast<uint32_t>(chunk.getVertices().size());
     }
 
     return allIndices;

@@ -77,7 +77,7 @@ private:
     // NEW: Chunk system for procedural world
     ChunkManager chunkManager;
     std::vector<Vertex> worldVertices;    // All vertices from all chunks
-    std::vector<uint16_t> worldIndices;   // All indices from all chunks
+    std::vector<uint32_t> worldIndices;   // All indices from all chunks
 
     // NEW: Camera and input system
     Camera camera;
