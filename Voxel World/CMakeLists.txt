@@ -17,6 +17,8 @@ find_package(glm CONFIG REQUIRED)
 add_executable(${PROJECT_NAME} 
     "main.cpp"
     "VoxelWorld.cpp"
+    "Chunk.cpp"
+    "Camera.cpp"
     # Add any other .cpp files here as you create them
 )
 

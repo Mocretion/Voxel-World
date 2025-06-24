@@ -13,6 +13,8 @@
 #include <fstream>
 
 #include "Vertex.h"
+#include "Chunk.h"  // Include our new chunk system
+#include "Camera.h" // Include our camera system
 
 class VoxelWorld {
 public:
@@ -68,6 +70,27 @@ private:
     VkDescriptorPool descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
 
+    // NEW: Chunk system for procedural world
+    ChunkManager chunkManager;
+    std::vector<Vertex> worldVertices;    // All vertices from all chunks
+    std::vector<uint16_t> worldIndices;   // All indices from all chunks
+
+    // NEW: Camera and input system
+    Camera camera;
+    bool mouseCaptured = false;  // Whether mouse is captured for looking around
+
+    // Timing for smooth movement
+    std::chrono::high_resolution_clock::time_point lastFrameTime;
+    float deltaTime = 0.0f;
+
+    // HUD/Direction display
+    std::string getDirectionString(const glm::vec3& front);
+    void updateWindowTitle();
+
+    // Timer for updating window title (don't update every frame)
+    float titleUpdateTimer = 0.0f;
+    const float TITLE_UPDATE_INTERVAL = 0.1f; // Update 10 times per second
+
     // Helper struct for queue families
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
@@ -91,6 +114,12 @@ private:
     void initVulkan();
     void mainLoop();
     void cleanup();
+
+    // NEW: World generation
+    void generateWorld();
+
+    // NEW: Input handling
+    void handleInput();
 
     // Vulkan initialization methods
     void createInstance();

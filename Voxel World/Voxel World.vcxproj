@@ -127,6 +127,8 @@
     <Text Include="CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="Chunk.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="VoxelWorld.cpp" />
   </ItemGroup>
@@ -137,6 +139,9 @@
     <None Include="vertex.vert" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Camera.h" />
+    <ClInclude Include="Chunk.h" />
+    <ClInclude Include="HUD.h" />
     <ClInclude Include="Vertex.h" />
     <ClInclude Include="VoxelWorld.h" />
   </ItemGroup>

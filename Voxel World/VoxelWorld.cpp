@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <set>
+#include "Camera.h"
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -47,6 +48,13 @@ void VoxelWorld::initWindow()
     {
         throw std::runtime_error("Failed to create window: " + std::string(SDL_GetError()));
     }
+
+    // Initialize camera at a good starting position
+    camera = Camera(glm::vec3(16.0f, 10.0f, 16.0f));
+
+    // Initialize timing
+    lastFrameTime = std::chrono::high_resolution_clock::now();
+
     std::cout << "Window created successfully!" << std::endl;
 }
 
@@ -63,6 +71,9 @@ void VoxelWorld::initVulkan()
     createGraphicsPipeline();
     createFramebuffers();
     createCommandPool();
+
+    generateWorld();
+
     createVertexBuffer();
     createIndexBuffer();
     createUniformBuffers();
@@ -116,6 +127,36 @@ void VoxelWorld::createInstance()
     {
         throw std::runtime_error("Failed to create instance!");
     }
+}
+
+void VoxelWorld::generateWorld()
+{
+    std::cout << "Generating voxel world..." << std::endl;
+
+    // Generate a 3x3 grid of chunks (each chunk is 32x32 cubes)
+    // This creates a 96x96 cube floor centered around the origin
+    chunkManager.generateFloor(3, 3);
+
+    // Get all vertices and indices from the chunk manager
+    worldVertices = chunkManager.getAllVertices();
+    worldIndices = chunkManager.getAllIndices();
+
+    std::cout << "Generated " << worldVertices.size() << " vertices and "
+        << worldIndices.size() << " indices" << std::endl;
+}
+
+void VoxelWorld::handleInput()
+{
+    // Calculate delta time for smooth movement
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    deltaTime = std::chrono::duration<float>(currentTime - lastFrameTime).count();
+    lastFrameTime = currentTime;
+
+    // Get current keyboard state
+    const Uint8* keyState = SDL_GetKeyboardState(NULL);
+
+    // Process keyboard input for camera movement
+    camera.processKeyboard(keyState, deltaTime);
 }
 
 void VoxelWorld::createSurface()
@@ -755,7 +796,7 @@ void VoxelWorld::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize
 
 void VoxelWorld::createVertexBuffer()
 {
-    VkDeviceSize bufferSize = sizeof(cubeVertices[0]) * cubeVertices.size();
+    VkDeviceSize bufferSize = sizeof(worldVertices[0]) * worldVertices.size();
 
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
@@ -763,7 +804,7 @@ void VoxelWorld::createVertexBuffer()
 
     void* data;
     vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, cubeVertices.data(), (size_t)bufferSize);
+    memcpy(data, worldVertices.data(), (size_t)bufferSize);
     vkUnmapMemory(device, stagingBufferMemory);
 
     createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
@@ -776,7 +817,7 @@ void VoxelWorld::createVertexBuffer()
 
 void VoxelWorld::createIndexBuffer()
 {
-    VkDeviceSize bufferSize = sizeof(cubeIndices[0]) * cubeIndices.size();
+    VkDeviceSize bufferSize = sizeof(worldIndices[0]) * worldIndices.size();
 
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
@@ -784,7 +825,7 @@ void VoxelWorld::createIndexBuffer()
 
     void* data;
     vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, cubeIndices.data(), (size_t)bufferSize);
+    memcpy(data, worldIndices.data(), (size_t)bufferSize);
     vkUnmapMemory(device, stagingBufferMemory);
 
     createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
@@ -908,8 +949,22 @@ void VoxelWorld::createSyncObjects()
 void VoxelWorld::mainLoop()
 {
     std::cout << "Starting main loop..." << std::endl;
+    std::cout << "Controls:" << std::endl;
+    std::cout << "  WASD - Move around" << std::endl;
+    std::cout << "  Space - Fly up" << std::endl;
+    std::cout << "  Shift - Fly down" << std::endl;
+    std::cout << "  Ctrl+Movement - Move faster" << std::endl;
+    std::cout << "  Mouse - Look around (click to capture mouse)" << std::endl;
+    std::cout << "  Escape - Exit" << std::endl;
+    std::cout << "  Direction info shown in window title" << std::endl;
+
     bool running = true;
     SDL_Event event;
+
+    // Variables for mouse movement
+    int mouseX, mouseY;
+    int lastMouseX = 0, lastMouseY = 0;
+    bool firstMouse = true;
 
     while (running)
     {
@@ -920,13 +975,73 @@ void VoxelWorld::mainLoop()
                 std::cout << "Quit event received" << std::endl;
                 running = false;
             }
-            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)
+
+            if (event.type == SDL_KEYDOWN)
             {
-                std::cout << "Escape key pressed" << std::endl;
-                running = false;
+                if (event.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    if (mouseCaptured)
+                    {
+                        // Release mouse capture
+                        mouseCaptured = false;
+                        SDL_SetRelativeMouseMode(SDL_FALSE);
+                        SDL_ShowCursor(SDL_ENABLE);
+                        std::cout << "Mouse released. Click to capture again." << std::endl;
+                    }
+                    else
+                    {
+                        std::cout << "Escape key pressed" << std::endl;
+                        running = false;
+                    }
+                }
+            }
+
+            if (event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                if (event.button.button == SDL_BUTTON_LEFT && !mouseCaptured)
+                {
+                    // Capture mouse for looking around
+                    mouseCaptured = true;
+                    SDL_SetRelativeMouseMode(SDL_TRUE);
+                    SDL_ShowCursor(SDL_DISABLE);
+                    firstMouse = true;
+                    std::cout << "Mouse captured. Press Escape to release." << std::endl;
+                }
+            }
+
+            if (event.type == SDL_MOUSEMOTION && mouseCaptured)
+            {
+                mouseX = event.motion.x;
+                mouseY = event.motion.y;
+
+                if (firstMouse)
+                {
+                    lastMouseX = mouseX;
+                    lastMouseY = mouseY;
+                    firstMouse = false;
+                }
+
+                // Calculate mouse offset
+                float xOffset = static_cast<float>(event.motion.xrel);
+                float yOffset = static_cast<float>(-event.motion.yrel); // Reversed since y-coordinates go from bottom to top
+
+                // Process mouse movement
+                camera.processMouseMovement(xOffset, yOffset);
             }
         }
 
+        // Handle continuous input (WASD movement)
+        handleInput();
+
+        // Update window title periodically
+        titleUpdateTimer += deltaTime;
+        if (titleUpdateTimer >= TITLE_UPDATE_INTERVAL)
+        {
+            updateWindowTitle();
+            titleUpdateTimer = 0.0f;
+        }
+
+        // Render frame
         drawFrame();
     }
 
@@ -935,15 +1050,13 @@ void VoxelWorld::mainLoop()
 
 void VoxelWorld::updateUniformBuffer(uint32_t currentImage)
 {
-    static auto startTime = std::chrono::high_resolution_clock::now();
-
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+    ubo.model = glm::mat4(1.0f); // No rotation for the world
+
+    // Use camera's view matrix
+    ubo.view = camera.getViewMatrix();
+
+    ubo.proj = glm::perspective(glm::radians(75.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
 
     // GLM was originally designed for OpenGL, where the Y coordinate of the clip coordinates is inverted
     ubo.proj[1][1] *= -1;
@@ -1045,7 +1158,7 @@ void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t ima
     renderPassInfo.renderArea.offset = { 0, 0 };
     renderPassInfo.renderArea.extent = swapChainExtent;
 
-    VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}} };
+    VkClearValue clearColor = { {{0.1f, 0.1f, 0.2f, 1.0f}} }; // Dark blue background
     renderPassInfo.clearValueCount = 1;
     renderPassInfo.pClearValues = &clearColor;
 
@@ -1061,7 +1174,8 @@ void VoxelWorld::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t ima
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(cubeIndices.size()), 1, 0, 0, 0);
+    // Draw all the cubes using our world indices
+    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(worldIndices.size()), 1, 0, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -1125,4 +1239,64 @@ void VoxelWorld::cleanup()
         SDL_DestroyWindow(window);
     }
     SDL_Quit();
+}
+
+void VoxelWorld::updateWindowTitle()
+{
+    glm::vec3 front = camera.getFront();
+    glm::vec3 pos = camera.getPosition();
+
+    std::string direction = getDirectionString(front);
+
+    // Create detailed window title
+    char title[256];
+    snprintf(title, sizeof(title),
+        "Voxel World - Facing: %s | Pos: (%.1f, %.1f, %.1f) | Pitch: %.1f° Yaw: %.1f°",
+        direction.c_str(),
+        pos.x, pos.y, pos.z,
+        camera.pitch, camera.yaw
+    );
+
+    SDL_SetWindowTitle(window, title);
+}
+
+std::string VoxelWorld::getDirectionString(const glm::vec3& front)
+{
+    // Determine primary direction based on largest component
+    float absX = std::abs(front.x);
+    float absY = std::abs(front.y);
+    float absZ = std::abs(front.z);
+
+    std::string direction;
+    std::string secondary = "";
+
+    // Find primary direction (largest component)
+    if (absX > absY && absX > absZ)
+    {
+        direction = (front.x > 0) ? "East (+X)" : "West (-X)";
+    }
+    else if (absZ > absX && absZ > absY)
+    {
+        direction = (front.z > 0) ? "South (+Z)" : "North (-Z)";
+    }
+    else
+    {
+        direction = (front.y > 0) ? "Up (+Y)" : "Down (-Y)";
+    }
+
+    // Add secondary directions for more precision
+    if (absX > 0.3f && direction.find("X") == std::string::npos)
+    {
+        secondary += (front.x > 0) ? " E" : " W";
+    }
+    if (absZ > 0.3f && direction.find("Z") == std::string::npos)
+    {
+        secondary += (front.z > 0) ? " S" : " N";
+    }
+    if (absY > 0.3f && direction.find("Y") == std::string::npos)
+    {
+        secondary += (front.y > 0) ? " Up" : " Down";
+    }
+
+    return direction + secondary;
 }
