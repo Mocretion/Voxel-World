@@ -19,6 +19,15 @@
     <Filter Include="Source Files\noise">
       <UniqueIdentifier>{98a1e69b-b1ca-4590-8c99-1125321c245c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\input">
+      <UniqueIdentifier>{5e452ea7-8153-4e1b-ad06-2e8299dbebe5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\renderer">
+      <UniqueIdentifier>{1297e2b5-0368-4357-9390-35ab33982c53}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\renderer\vulkan">
+      <UniqueIdentifier>{8d001f62-043a-489a-bed8-f72356eaf7e6}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />
@@ -38,6 +47,21 @@
     </ClCompile>
     <ClCompile Include="PerlinNoise.cpp">
       <Filter>Source Files\noise</Filter>
+    </ClCompile>
+    <ClCompile Include="VulkanRenderer.cpp">
+      <Filter>Source Files\renderer\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VulkanRenderer.h">
+      <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="InputManager.cpp">
+      <Filter>Source Files\input</Filter>
+    </ClCompile>
+    <ClCompile Include="ResourceManager.cpp">
+      <Filter>Source Files\renderer\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="WorldRenderer.cpp">
+      <Filter>Source Files\renderer</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -69,6 +93,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PerlinNoise.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="InputManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="WorldRenderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ResourceManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

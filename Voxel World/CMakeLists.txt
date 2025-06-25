@@ -20,6 +20,10 @@ add_executable(${PROJECT_NAME}
     "Chunk.cpp"
     "Camera.cpp"
     "PerlinNoise.cpp"
+    "InputManager.cpp"
+    "ResourceManager.cpp"
+    "VulkanRenderer.cpp"
+    "WorldRenderer.cpp"
     # Add any other .cpp files here as you create them
 )
 

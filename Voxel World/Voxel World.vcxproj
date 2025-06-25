@@ -129,9 +129,14 @@
   <ItemGroup>
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="Chunk.cpp" />
+    <ClCompile Include="InputManager.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PerlinNoise.cpp" />
+    <ClCompile Include="ResourceManager.cpp" />
     <ClCompile Include="VoxelWorld.cpp" />
+    <ClCompile Include="VulkanRenderer.cpp" />
+    <ClCompile Include="VulkanRenderer.h" />
+    <ClCompile Include="WorldRenderer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="build.bat" />
@@ -143,9 +148,12 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="Chunk.h" />
     <ClInclude Include="HUD.h" />
+    <ClInclude Include="InputManager.h" />
     <ClInclude Include="PerlinNoise.h" />
+    <ClInclude Include="ResourceManager.h" />
     <ClInclude Include="Vertex.h" />
     <ClInclude Include="VoxelWorld.h" />
+    <ClInclude Include="WorldRenderer.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
