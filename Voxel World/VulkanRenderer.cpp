@@ -44,6 +44,13 @@ void VulkanRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32
     std::cout << "Vulkan renderer initialized successfully!" << std::endl;
 }
 
+bool VulkanRenderer::isWindowMinimized() const
+{
+    int width, height;
+    SDL_GetWindowSize(window, &width, &height);
+    return width == 0 || height == 0;
+}
+
 bool VulkanRenderer::beginFrame()
 {
     // Wait for previous frame to finish
@@ -1241,6 +1248,12 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkIm
 void VulkanRenderer::recreateSwapChain()
 {
     std::cout << "[DEBUG] recreateSwapChain called" << std::endl;
+
+    if (isWindowMinimized())
+    {
+        std::cout << "[DEBUG] Window is minimized, skipping swap chain recreation" << std::endl;
+        return; // Don't recreate swap chain when minimized
+    }
 
     // ALWAYS get current window size from SDL, don't trust stored values
     int width = 0, height = 0;

@@ -100,24 +100,21 @@ void VoxelWorld::mainLoop()
 {
     bool running = true;
 
-    while (running)
+    while (inputManager->processEvents(*camera, deltaTime))
     {
         updateTiming();
 
-        // Process input events
-        running = inputManager->processEvents(*camera, deltaTime);
-
-        // Begin rendering frame
+        // Try to begin frame - this will return false if window is minimized
         if (renderer->beginFrame())
         {
-            // Render the world
-            float aspectRatio = static_cast<float>(renderer->getFrameWidth()) /
-                static_cast<float>(renderer->getFrameHeight());
-
-            worldRenderer->render(*camera, aspectRatio);
-
-            // End frame
+            // Only render if we successfully began the frame
+            worldRenderer->render(*camera, static_cast<float>(currentWindowWidth) / static_cast<float>(currentWindowHeight));
             renderer->endFrame();
+        }
+        else
+        {
+            // Window is minimized or needs recreation, just wait a bit
+            SDL_Delay(10); // Wait 10ms to avoid burning CPU
         }
 
         // Update window title periodically

@@ -25,7 +25,7 @@ public:
 
     // Camera settings - IMPROVED VALUES
     float movementSpeed = 15.0f;       // How fast we move (units per second)
-    float mouseSensitivity = 0.15f;    // INCREASED from 0.1f - was too low!
+    float mouseSensitivity = 0.1f;    // INCREASED from 0.1f - was too low!
     float pitch = 0.0f;                // Up/down rotation (in degrees)
     float yaw = -90.0f;                // Left/right rotation (in degrees, -90 = facing forward)
 

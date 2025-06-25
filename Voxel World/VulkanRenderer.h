@@ -173,4 +173,5 @@ private:
     void recreateSwapChain();
     void cleanupSwapChain();
     void recreateGraphicsPipeline();
+    bool isWindowMinimized() const;
 };

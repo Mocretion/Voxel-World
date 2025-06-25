@@ -85,7 +85,7 @@ UniformBufferObject WorldRenderer::createUBO(const Camera& camera, float aspectR
 
     // Projection matrix
     ubo.proj = glm::perspective(
-        glm::radians(45.0f),  // Field of view (45 degrees)
+        glm::radians(80.0f),  // Field of view (45 degrees)
         aspectRatio,          // Aspect ratio
         0.1f,                 // Near plane
         1000.0f              // Far plane (large for voxel world)
