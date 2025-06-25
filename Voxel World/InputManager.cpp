@@ -3,8 +3,8 @@
 
 InputManager::InputManager()
 {
-    // Initialize SDL mouse capture
-    SDL_SetRelativeMouseMode(SDL_FALSE);
+    std::cout << "[DEBUG] InputManager constructor called" << std::endl;
+    // Don't set relative mouse mode here - wait for explicit capture
 }
 
 bool InputManager::processEvents(Camera& camera, float deltaTime)
@@ -16,6 +16,7 @@ bool InputManager::processEvents(Camera& camera, float deltaTime)
         switch (event.type)
         {
         case SDL_QUIT:
+            std::cout << "[DEBUG] SDL_QUIT event received" << std::endl;
             return false; // Signal to quit
 
         case SDL_KEYDOWN:
@@ -32,7 +33,7 @@ bool InputManager::processEvents(Camera& camera, float deltaTime)
         case SDL_WINDOWEVENT:
             if (event.window.event == SDL_WINDOWEVENT_RESIZED)
             {
-                // Window resize will be handled by the main application
+                std::cout << "[DEBUG] Window resize event" << std::endl;
             }
             break;
         }
@@ -57,19 +58,23 @@ void InputManager::setToggleMouseCaptureCallback(std::function<void()> callback)
 
 void InputManager::setMouseCaptured(bool captured)
 {
+    std::cout << "[DEBUG] Setting mouse captured: " << (captured ? "true" : "false") << std::endl;
     mouseCaptured = captured;
-    SDL_SetRelativeMouseMode(captured ? SDL_TRUE : SDL_FALSE);
 
     if (captured)
     {
-        // Hide cursor and capture it
+        // Enable relative mouse mode - this is KEY!
+        SDL_SetRelativeMouseMode(SDL_TRUE);
         SDL_ShowCursor(SDL_DISABLE);
         firstMouseMovement = true;
+        std::cout << "[DEBUG] Relative mouse mode ENABLED" << std::endl;
     }
     else
     {
-        // Show cursor and release it
+        // Disable relative mouse mode
+        SDL_SetRelativeMouseMode(SDL_FALSE);
         SDL_ShowCursor(SDL_ENABLE);
+        std::cout << "[DEBUG] Relative mouse mode DISABLED" << std::endl;
     }
 }
 
@@ -78,7 +83,7 @@ void InputManager::handleKeyPress(SDL_Keycode key)
     switch (key)
     {
     case SDLK_ESCAPE:
-        // Toggle mouse capture with Escape key
+        std::cout << "[DEBUG] Escape key pressed - toggling mouse capture" << std::endl;
         if (onToggleMouseCapture)
         {
             onToggleMouseCapture();
@@ -86,7 +91,7 @@ void InputManager::handleKeyPress(SDL_Keycode key)
         break;
 
     case SDLK_F1:
-        // Toggle wireframe mode with F1 key
+        std::cout << "[DEBUG] F1 key pressed - toggling wireframe" << std::endl;
         if (onToggleWireframe)
         {
             onToggleWireframe();
@@ -94,7 +99,7 @@ void InputManager::handleKeyPress(SDL_Keycode key)
         break;
 
     case SDLK_F11:
-        // Could add fullscreen toggle here
+        std::cout << "[DEBUG] F11 key pressed" << std::endl;
         break;
     }
 }
@@ -103,18 +108,20 @@ void InputManager::handleMouseMotion(const SDL_MouseMotionEvent& motion, Camera&
 {
     if (firstMouseMovement)
     {
-        lastMouseX = motion.x;
-        lastMouseY = motion.y;
+        std::cout << "[DEBUG] First mouse movement - ignoring" << std::endl;
         firstMouseMovement = false;
         return;
     }
 
-    // Calculate mouse offset from last position
-    float xOffset = motion.x - lastMouseX;
-    float yOffset = lastMouseY - motion.y; // Reversed since y-coordinates are flipped
+    // In relative mouse mode, motion.xrel and motion.yrel contain the relative movement
+    // These are NOT limited by screen boundaries!
+    float xOffset = static_cast<float>(motion.xrel);
+    float yOffset = static_cast<float>(-motion.yrel); // Invert Y axis
 
-    lastMouseX = motion.x;
-    lastMouseY = motion.y;
+    // DEBUG: Print the raw mouse movement
+    std::cout << "[DEBUG] Raw mouse movement - X: " << motion.xrel
+        << ", Y: " << motion.yrel << " -> xOffset: " << xOffset
+        << ", yOffset: " << yOffset << std::endl;
 
     // Pass the offset to the camera
     camera.processMouseMovement(xOffset, yOffset);

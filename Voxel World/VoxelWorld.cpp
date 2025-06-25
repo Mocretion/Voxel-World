@@ -92,6 +92,7 @@ void VoxelWorld::mainLoop()
         // Process input events
         running = inputManager->processEvents(*camera, deltaTime);
 
+
         // Begin rendering frame
         if (renderer->beginFrame())
         {
@@ -133,10 +134,16 @@ void VoxelWorld::updateWindowTitle()
     std::string direction = worldRenderer->getDirectionString(camera->getFront());
     glm::vec3 pos = camera->getPosition();
 
+    // Get pitch and yaw values from camera
+    float pitch = camera->pitch;
+    float yaw = camera->yaw;
+
     std::string title = "Voxel World - Position: (" +
         std::to_string(static_cast<int>(pos.x)) + ", " +
         std::to_string(static_cast<int>(pos.y)) + ", " +
-        std::to_string(static_cast<int>(pos.z)) + ") - " + direction;
+        std::to_string(static_cast<int>(pos.z)) + ") - " + direction +
+        " - Pitch: " + std::to_string(static_cast<int>(pitch)) + "° " +
+        "Yaw: " + std::to_string(static_cast<int>(yaw)) + "°";
 
     SDL_SetWindowTitle(window, title.c_str());
 }

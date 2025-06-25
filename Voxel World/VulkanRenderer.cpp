@@ -7,7 +7,8 @@
 
 VulkanRenderer::VulkanRenderer()
 {
-    // Constructor - initialization happens in initialize()
+    // All Vulkan handles are now initialized in the header file
+    // Constructor - main initialization happens in initialize()
 }
 
 VulkanRenderer::~VulkanRenderer()
@@ -49,9 +50,8 @@ bool VulkanRenderer::beginFrame()
     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
     // Acquire next image from swap chain
-    uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
-        imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &currentImageIndex);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
     {
@@ -65,11 +65,11 @@ bool VulkanRenderer::beginFrame()
     }
 
     // Check if a previous frame is using this image
-    if (imagesInFlight[imageIndex] != VK_NULL_HANDLE)
+    if (imagesInFlight[currentImageIndex] != VK_NULL_HANDLE)
     {
-        vkWaitForFences(device, 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+        vkWaitForFences(device, 1, &imagesInFlight[currentImageIndex], VK_TRUE, UINT64_MAX);
     }
-    imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+    imagesInFlight[currentImageIndex] = inFlightFences[currentFrame];
 
     // Reset fence for this frame
     vkResetFences(device, 1, &inFlightFences[currentFrame]);
@@ -84,7 +84,7 @@ bool VulkanRenderer::beginFrame()
 
     // Record command buffer
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-    recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
+    recordCommandBuffer(commandBuffers[currentFrame], currentImageIndex);
 
     return true;
 }
@@ -118,13 +118,10 @@ void VulkanRenderer::endFrame()
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = signalSemaphores;
 
-    uint32_t imageIndex;
-    vkAcquireNextImageKHR(device, swapChain, 0, VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
-
     VkSwapchainKHR swapChains[] = { swapChain };
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapChains;
-    presentInfo.pImageIndices = &imageIndex;
+    presentInfo.pImageIndices = &currentImageIndex;  // Use the image index from beginFrame()
 
     VkResult result = vkQueuePresentKHR(presentQueue, &presentInfo);
 

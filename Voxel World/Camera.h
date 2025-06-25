@@ -23,11 +23,11 @@ public:
     glm::vec3 getUp() const { return up; }
     glm::vec3 getRight() const { return right; }
 
-    // Camera settings
-    float movementSpeed = 15.0f;      // How fast we move (units per second)
-    float mouseSensitivity = 0.1f;    // How sensitive mouse movement is
-    float pitch = 0.0f;               // Up/down rotation (in degrees)
-    float yaw = -90.0f;               // Left/right rotation (in degrees, -90 = facing forward)
+    // Camera settings - IMPROVED VALUES
+    float movementSpeed = 15.0f;       // How fast we move (units per second)
+    float mouseSensitivity = 0.15f;    // INCREASED from 0.1f - was too low!
+    float pitch = 0.0f;                // Up/down rotation (in degrees)
+    float yaw = -90.0f;                // Left/right rotation (in degrees, -90 = facing forward)
 
 private:
     // Camera position and orientation
