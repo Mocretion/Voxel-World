@@ -19,6 +19,7 @@ add_executable(${PROJECT_NAME}
     "VoxelWorld.cpp"
     "Chunk.cpp"
     "Camera.cpp"
+    "PerlinNoise.cpp"
     # Add any other .cpp files here as you create them
 )
 

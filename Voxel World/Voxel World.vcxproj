@@ -130,6 +130,7 @@
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="Chunk.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="PerlinNoise.cpp" />
     <ClCompile Include="VoxelWorld.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -142,6 +143,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="Chunk.h" />
     <ClInclude Include="HUD.h" />
+    <ClInclude Include="PerlinNoise.h" />
     <ClInclude Include="Vertex.h" />
     <ClInclude Include="VoxelWorld.h" />
   </ItemGroup>

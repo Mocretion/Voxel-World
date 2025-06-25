@@ -1,82 +1,188 @@
 #include "Chunk.h"
 #include <random>
+#include <algorithm>
+#include <iostream>
 
 // Define the cube size (1.0f means each cube is 1 unit)
 const float Chunk::CUBE_SIZE = 1.0f;
 
 // Chunk Constructor
-Chunk::Chunk(int chunkX, int chunkZ) : chunkX(chunkX), chunkZ(chunkZ)
+Chunk::Chunk(int chunkX, int chunkZ, PerlinNoise* noise) : chunkX(chunkX), chunkZ(chunkZ), noiseGenerator(noise)
 {
     // Initialize the 2D vector - like creating new bool[32][32] in C#
     cubes.resize(CHUNK_SIZE);
-    for (int i = 0; i < CHUNK_SIZE; i++)
+    for (int x = 0; x < CHUNK_SIZE; x++)
     {
-        cubes[i].resize(CHUNK_SIZE, true);  // true = cube exists, false = air
+        cubes[x].resize(MAX_HEIGHT);
+        for (int y = 0; y < MAX_HEIGHT; y++)
+        {
+            cubes[x][y].resize(CHUNK_SIZE, false);  // false = air
+        }
+    }
+
+    // Initialize heights array
+    heights.resize(CHUNK_SIZE);
+    for (int x = 0; x < CHUNK_SIZE; x++)
+    {
+        heights[x].resize(CHUNK_SIZE, 0);
+    }
+
+    // Generate terrain if we have a noise generator
+    if (noiseGenerator)
+    {
+        generateTerrain();
     }
 
     // Generate the mesh data
     generateMesh();
 }
 
-bool Chunk::hasCubeAt(int x, int z) const
+void Chunk::generateTerrain()
 {
-    if (x < 0 || x >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE)
-    {
-        return false;  // Out of bounds
-    }
-    return cubes[x][z];
-}
 
-void Chunk::setCubeAt(int x, int z, bool exists)
-{
-    if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE)
-    {
-        cubes[x][z] = exists;
-    }
-}
-
-void Chunk::generateMesh()
-{
-    // Clear previous data
-    vertices.clear();
-    indices.clear();
-
-    // Random number generator for colors
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> colorDist(0.3f, 1.0f);
-
-    // Loop through all positions in the chunk
+    // Generate height map using Perlin noise
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
         for (int z = 0; z < CHUNK_SIZE; z++)
         {
-            if (hasCubeAt(x, z))
+            // Calculate world position
+            float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
+            float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
+
+            // Get noise value using octave noise for more interesting terrain
+            // Parameters: x, y, octaves, persistence, scale
+            float noiseValue = noiseGenerator->octaveNoise2D(
+                worldX * 0.01f,  // Scale down for larger features
+                worldZ * 0.01f,
+                6,               // 6 octaves for good detail
+                0.5f,            // persistence
+                1.0f             // base scale
+            );
+
+            // Convert noise value (-1 to 1) to height (0 to MAX_HEIGHT)
+            // Add base height of 10 and scale by 20
+            int height = static_cast<int>(10 + (noiseValue + 1.0f) * 10.0f);
+
+            // Clamp height to valid range
+            height = std::max(1, std::min(height, MAX_HEIGHT - 1));
+
+            heights[x][z] = height;
+
+            // Fill cubes up to this height
+            for (int y = 0; y < height; y++)
             {
-                // Calculate world position
-                float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
-                float worldY = 0.0f;  // Floor level
-                float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
-                // Generate a random color for each cube
-                glm::vec3 color(colorDist(gen), colorDist(gen), colorDist(gen));
-
-                // Only render faces that are visible (not blocked by neighbors)
-                addCubeWithCulling(worldX, worldY, worldZ, color, x, z);
+                cubes[x][y][z] = true;
             }
         }
     }
 }
 
-void Chunk::addCubeWithCulling(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localZ)
+bool Chunk::hasCubeAt(int x, int y, int z) const
+{
+    if (x < 0 || x >= CHUNK_SIZE ||
+        y < 0 || y >= MAX_HEIGHT ||
+        z < 0 || z >= CHUNK_SIZE)
+    {
+        return false;  // Out of bounds
+    }
+    return cubes[x][y][z];
+}
+
+void Chunk::setCubeAt(int x, int y, int z, bool exists)
+{
+    if (x >= 0 && x < CHUNK_SIZE &&
+        y >= 0 && y < MAX_HEIGHT &&
+        z >= 0 && z < CHUNK_SIZE)
+    {
+        cubes[x][y][z] = exists;
+    }
+}
+
+int Chunk::getHeightAt(int x, int z) const
+{
+    if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE)
+    {
+        return heights[x][z];
+    }
+    return 0;
+}
+
+glm::vec3 Chunk::getTerrainColor(int height) const
+{
+    // Color based on height - creates a nice terrain gradient
+    if (height < 5)
+    {
+        // Beach/sand color
+        return glm::vec3(0.9f, 0.8f, 0.6f);
+    }
+    else if (height < 15)
+    {
+        // Grass color
+        return glm::vec3(0.2f, 0.7f, 0.2f);
+    }
+    else if (height < 25)
+    {
+        // Mountain/rock color
+        return glm::vec3(0.5f, 0.4f, 0.3f);
+    }
+    else
+    {
+        // Snow color
+        return glm::vec3(0.9f, 0.9f, 0.95f);
+    }
+}
+
+void Chunk::generateMesh()
+{
+    vertices.clear();
+    indices.clear();
+
+    int blocksProcessed = 0;
+    int facesAdded = 0;
+
+    for (int x = 0; x < CHUNK_SIZE; x++)
+    {
+        for (int z = 0; z < CHUNK_SIZE; z++)
+        {
+            for (int y = 0; y < MAX_HEIGHT; y++)
+            {
+                if (hasCubeAt(x, y, z))
+                {
+                    blocksProcessed++;
+
+                    float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
+                    float worldY = y * CUBE_SIZE;
+                    float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
+
+                    glm::vec3 color = getTerrainColor(y);
+                    float variation = (static_cast<float>(x + z) / CHUNK_SIZE) * 0.1f;
+                    color += glm::vec3(variation);
+                    color = glm::clamp(color, 0.0f, 1.0f);
+
+                    size_t verticesBeforeAdd = vertices.size();
+                    addCubeWithCulling(worldX, worldY, worldZ, color, x, y, z);
+                    size_t verticesAfterAdd = vertices.size();
+
+                    if (verticesAfterAdd > verticesBeforeAdd)
+                    {
+                        facesAdded += (verticesAfterAdd - verticesBeforeAdd) / 4;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void Chunk::addCubeWithCulling(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ)
 {
     // Check which faces should be rendered based on neighbors
-    bool renderFront = !hasCubeAt(localX, localZ + 1);  // +Z direction
-    bool renderBack = !hasCubeAt(localX, localZ - 1);   // -Z direction
-    bool renderRight = !hasCubeAt(localX + 1, localZ);  // +X direction
-    bool renderLeft = !hasCubeAt(localX - 1, localZ);   // -X direction
-    bool renderTop = true;    // Always render top (no cubes above in a floor)
-    bool renderBottom = true; // Always render bottom for now (you might want to change this)
+    bool renderFront = !hasCubeAt(localX, localY, localZ + 1);  // +Z direction
+    bool renderBack = !hasCubeAt(localX, localY, localZ - 1);   // -Z direction
+    bool renderRight = !hasCubeAt(localX + 1, localY, localZ);  // +X direction
+    bool renderLeft = !hasCubeAt(localX - 1, localY, localZ);   // -X direction
+    bool renderTop = !hasCubeAt(localX, localY + 1, localZ);    // +Y direction
+    bool renderBottom = !hasCubeAt(localX, localY - 1, localZ); // -Y direction
 
     // Add faces one by one, calculating the correct base index for each face
 
@@ -237,8 +343,13 @@ void Chunk::addCube(float worldX, float worldY, float worldZ, glm::vec3 color)
     indices.insert(indices.end(), cubeIndices.begin(), cubeIndices.end());
 }
 
+ChunkManager::ChunkManager() : noiseGenerator(12345)  // Use a fixed seed for consistent terrain
+{
+    // You can change the seed to get different terrain
+}
+
 // ChunkManager Implementation
-void ChunkManager::generateFloor(int chunksX, int chunksZ)
+void ChunkManager::generateTerrain(int chunksX, int chunksZ)
 {
     chunks.clear();  // Clear any existing chunks
 
@@ -255,7 +366,7 @@ void ChunkManager::generateFloor(int chunksX, int chunksZ)
             int chunkZ = startZ + z;
 
             // Create and add new chunk to our list
-            chunks.emplace_back(chunkX, chunkZ);
+            chunks.emplace_back(chunkX, chunkZ, &noiseGenerator);
         }
     }
 }

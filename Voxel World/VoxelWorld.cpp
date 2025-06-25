@@ -138,7 +138,7 @@ void VoxelWorld::generateWorld()
 
     // Generate a 3x3 grid of chunks (each chunk is 32x32 cubes)
     // This creates a 96x96 cube floor centered around the origin
-    chunkManager.generateFloor(12, 12);
+    chunkManager.generateTerrain(12, 12);
 
     // Get all vertices and indices from the chunk manager
     worldVertices = chunkManager.getAllVertices();

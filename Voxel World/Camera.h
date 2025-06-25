@@ -6,8 +6,9 @@
 
 class Camera {
 public:
+
     // Constructor
-    Camera(glm::vec3 position = glm::vec3(0.0f, 5.0f, 0.0f));
+    Camera(glm::vec3 position = glm::vec3(0.0f, 30.0f, 0.0f));
 
     // Get the view matrix for rendering
     glm::mat4 getViewMatrix() const;
