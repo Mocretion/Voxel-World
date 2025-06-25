@@ -33,7 +33,17 @@ bool InputManager::processEvents(Camera& camera, float deltaTime)
         case SDL_WINDOWEVENT:
             if (event.window.event == SDL_WINDOWEVENT_RESIZED)
             {
-                std::cout << "[DEBUG] Window resize event" << std::endl;
+                std::cout << "[DEBUG] Window resize event - New size: " << event.window.data1 << "x" << event.window.data2 << std::endl;
+                // Notify VoxelWorld about the resize
+                if (onWindowResize)
+                {
+                    std::cout << "[DEBUG] Calling resize callback..." << std::endl;
+                    onWindowResize(static_cast<uint32_t>(event.window.data1), static_cast<uint32_t>(event.window.data2));
+                }
+                else
+                {
+                    std::cout << "[DEBUG] ERROR: No resize callback set!" << std::endl;
+                }
             }
             break;
         }
@@ -54,6 +64,13 @@ void InputManager::setToggleWireframeCallback(std::function<void()> callback)
 void InputManager::setToggleMouseCaptureCallback(std::function<void()> callback)
 {
     onToggleMouseCapture = callback;
+}
+
+void InputManager::setWindowResizeCallback(std::function<void(uint32_t, uint32_t)> callback)
+{
+    std::cout << "[DEBUG] Setting window resize callback" << std::endl;
+    onWindowResize = callback;
+    std::cout << "[DEBUG] Window resize callback set successfully" << std::endl;
 }
 
 void InputManager::setMouseCaptured(bool captured)
@@ -117,11 +134,6 @@ void InputManager::handleMouseMotion(const SDL_MouseMotionEvent& motion, Camera&
     // These are NOT limited by screen boundaries!
     float xOffset = static_cast<float>(motion.xrel);
     float yOffset = static_cast<float>(-motion.yrel); // Invert Y axis
-
-    // DEBUG: Print the raw mouse movement
-    std::cout << "[DEBUG] Raw mouse movement - X: " << motion.xrel
-        << ", Y: " << motion.yrel << " -> xOffset: " << xOffset
-        << ", yOffset: " << yOffset << std::endl;
 
     // Pass the offset to the camera
     camera.processMouseMovement(xOffset, yOffset);

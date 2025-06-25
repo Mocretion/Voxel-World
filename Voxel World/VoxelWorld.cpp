@@ -61,7 +61,7 @@ void VoxelWorld::initWindow()
 
 void VoxelWorld::initComponents()
 {
-    // Create all components using smart pointers
+    // Create all components
     renderer = std::make_unique<VulkanRenderer>();
     inputManager = std::make_unique<InputManager>();
     worldRenderer = std::make_unique<WorldRenderer>(renderer.get());
@@ -71,14 +71,29 @@ void VoxelWorld::initComponents()
     renderer->initialize(window, currentWindowWidth, currentWindowHeight);
 
     // Generate the voxel world
-    worldRenderer->generateWorld(5, 5); // 5x5 chunks
+    worldRenderer->generateWorld(5, 5);
 
-    // Set up input callbacks
-    inputManager->setToggleWireframeCallback([this]() { toggleWireframe(); });
-    inputManager->setToggleMouseCaptureCallback([this]() { toggleMouseCapture(); });
+    // Set up ALL callbacks in one place
+    std::cout << "[DEBUG] Setting all input callbacks..." << std::endl;
 
-    // Start with mouse captured for first-person experience
+    inputManager->setToggleWireframeCallback([this]() {
+        std::cout << "[DEBUG] F1 wireframe callback triggered" << std::endl;
+        toggleWireframe();
+        });
+
+    inputManager->setToggleMouseCaptureCallback([this]() {
+        std::cout << "[DEBUG] ESC mouse callback triggered" << std::endl;
+        toggleMouseCapture();
+        });
+
+    inputManager->setWindowResizeCallback([this](uint32_t width, uint32_t height) {
+        std::cout << "[DEBUG] RESIZE CALLBACK TRIGGERED: " << width << "x" << height << std::endl;
+        handleWindowResize(width, height);
+        });
+
+    std::cout << "[DEBUG] All callbacks set. Starting with mouse captured..." << std::endl;
     inputManager->setMouseCaptured(true);
+    std::cout << "[DEBUG] Initialization complete!" << std::endl;
 }
 
 void VoxelWorld::mainLoop()
@@ -91,7 +106,6 @@ void VoxelWorld::mainLoop()
 
         // Process input events
         running = inputManager->processEvents(*camera, deltaTime);
-
 
         // Begin rendering frame
         if (renderer->beginFrame())
@@ -134,7 +148,7 @@ void VoxelWorld::updateWindowTitle()
     std::string direction = worldRenderer->getDirectionString(camera->getFront());
     glm::vec3 pos = camera->getPosition();
 
-    // Get pitch and yaw values from camera
+    // Get pitch and yaw values from camera using getter methods
     float pitch = camera->pitch;
     float yaw = camera->yaw;
 
@@ -160,6 +174,21 @@ void VoxelWorld::toggleMouseCapture()
     inputManager->setMouseCaptured(!currentlyCaptures);
 
     std::cout << "Mouse " << (currentlyCaptures ? "released" : "captured") << std::endl;
+}
+
+void VoxelWorld::handleWindowResize(uint32_t newWidth, uint32_t newHeight)
+{
+    std::cout << "[DEBUG] VoxelWorld::handleWindowResize called: " << newWidth << "x" << newHeight << std::endl;
+    std::cout << "[DEBUG] Previous dimensions were: " << currentWindowWidth << "x" << currentWindowHeight << std::endl;
+
+    // Update stored window dimensions
+    currentWindowWidth = newWidth;
+    currentWindowHeight = newHeight;
+
+    // Notify the Vulkan renderer about the resize
+    renderer->handleResize(newWidth, newHeight);
+
+    std::cout << "[DEBUG] Window resize handled successfully" << std::endl;
 }
 
 void VoxelWorld::cleanup()

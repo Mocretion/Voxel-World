@@ -56,7 +56,9 @@ bool VulkanRenderer::beginFrame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
     {
         framebufferResized = false;
+        std::cout << "[DEBUG] Calling recreateSwapChain from beginFrame() - framebufferResized was set" << std::endl;
         recreateSwapChain();
+        recreateGraphicsPipeline();
         return false; // Skip this frame
     }
     else if (result != VK_SUCCESS)
@@ -128,6 +130,7 @@ void VulkanRenderer::endFrame()
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
     {
         framebufferResized = false;
+        std::cout << "[DEBUG] Calling recreateSwapChain from endFrame() - present result was out of date" << std::endl;
         recreateSwapChain();
     }
     else if (result != VK_SUCCESS)
@@ -152,9 +155,14 @@ void VulkanRenderer::updateUniforms(const UniformBufferObject& ubo)
 
 void VulkanRenderer::handleResize(uint32_t newWidth, uint32_t newHeight)
 {
+    std::cout << "[DEBUG] VulkanRenderer::handleResize called with " << newWidth << "x" << newHeight << std::endl;
+
+    // Update the stored window dimensions
     windowWidth = newWidth;
     windowHeight = newHeight;
     framebufferResized = true;
+
+    std::cout << "[DEBUG] Window dimensions updated and framebufferResized flag set" << std::endl;
 }
 
 void VulkanRenderer::toggleWireframe()
@@ -522,17 +530,24 @@ VkPresentModeKHR VulkanRenderer::chooseSwapPresentMode(const std::vector<VkPrese
 
 VkExtent2D VulkanRenderer::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities)
 {
+    std::cout << "[DEBUG] chooseSwapExtent called" << std::endl;
+    std::cout << "[DEBUG] Current extent from capabilities: " << capabilities.currentExtent.width << "x" << capabilities.currentExtent.height << std::endl;
+    std::cout << "[DEBUG] Stored window dimensions: " << windowWidth << "x" << windowHeight << std::endl;
+
     if (capabilities.currentExtent.width != UINT32_MAX)
     {
+        std::cout << "[DEBUG] Using capabilities.currentExtent" << std::endl;
         return capabilities.currentExtent;
     }
     else
     {
         VkExtent2D actualExtent = { windowWidth, windowHeight };
+        std::cout << "[DEBUG] Using stored window dimensions: " << actualExtent.width << "x" << actualExtent.height << std::endl;
 
         actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
         actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
 
+        std::cout << "[DEBUG] Final extent after clamping: " << actualExtent.width << "x" << actualExtent.height << std::endl;
         return actualExtent;
     }
 }
@@ -1225,8 +1240,18 @@ VkImageView VulkanRenderer::createImageView(VkImage image, VkFormat format, VkIm
 
 void VulkanRenderer::recreateSwapChain()
 {
+    std::cout << "[DEBUG] recreateSwapChain called" << std::endl;
+
+    // ALWAYS get current window size from SDL, don't trust stored values
     int width = 0, height = 0;
     SDL_GetWindowSize(window, &width, &height);
+    std::cout << "[DEBUG] SDL reports window size as " << width << "x" << height << std::endl;
+
+    // Update stored dimensions to match SDL
+    windowWidth = static_cast<uint32_t>(width);
+    windowHeight = static_cast<uint32_t>(height);
+    std::cout << "[DEBUG] Updated stored dimensions to " << windowWidth << "x" << windowHeight << std::endl;
+
     while (width == 0 || height == 0)
     {
         SDL_GetWindowSize(window, &width, &height);
@@ -1241,6 +1266,8 @@ void VulkanRenderer::recreateSwapChain()
     createImageViews();
     createDepthResources();
     createFramebuffers();
+
+    std::cout << "[DEBUG] Swap chain recreated successfully with extent " << swapChainExtent.width << "x" << swapChainExtent.height << std::endl;
 }
 
 void VulkanRenderer::cleanupSwapChain()

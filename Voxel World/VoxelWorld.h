@@ -56,4 +56,5 @@ private:
     // Callbacks for input events
     void toggleWireframe();
     void toggleMouseCapture();
+    void handleWindowResize(uint32_t newWidth, uint32_t newHeight);
 };

@@ -14,6 +14,7 @@ public:
     // Set callbacks for special events
     void setToggleWireframeCallback(std::function<void()> callback);
     void setToggleMouseCaptureCallback(std::function<void()> callback);
+    void setWindowResizeCallback(std::function<void(uint32_t, uint32_t)> callback);
 
     // Mouse capture state
     bool isMouseCaptured() const { return mouseCaptured; }
@@ -28,6 +29,7 @@ private:
     // Callbacks for special actions
     std::function<void()> onToggleWireframe;
     std::function<void()> onToggleMouseCapture;
+    std::function<void(uint32_t, uint32_t)> onWindowResize;
 
     void handleKeyPress(SDL_Keycode key);
     void handleMouseMotion(const SDL_MouseMotionEvent& motion, Camera& camera);
