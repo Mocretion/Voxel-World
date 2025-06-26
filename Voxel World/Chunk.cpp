@@ -116,15 +116,10 @@ glm::vec3 Chunk::getTerrainColor(int height) const
         // Beach/sand color
         return glm::vec3(0.9f, 0.8f, 0.6f);
     }
-    else if (height < 15)
-    {
-        // Grass color
-        return glm::vec3(0.2f, 0.7f, 0.2f);
-    }
     else if (height < 25)
     {
-        // Mountain/rock color
-        return glm::vec3(0.5f, 0.4f, 0.3f);
+        // Grass color
+        return glm::vec3(0.095f, 0.871f, 0.302f);
     }
     else
     {
@@ -156,7 +151,10 @@ void Chunk::generateMesh()
                     float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
                     glm::vec3 color = getTerrainColor(y);
-                    float variation = (static_cast<float>(x + z) / CHUNK_SIZE) * 0.1f;
+					float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f; // +1 * 0.5f to normalize to 0-1 range
+
+					//std::cout << noiseGenerator->noise2D(x, z) * 0.4 << std::endl;
+
                     color += glm::vec3(variation);
                     color = glm::clamp(color, 0.0f, 1.0f);
 

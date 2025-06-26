@@ -1,4 +1,5 @@
 #include "PerlinNoise.h"
+#include <iostream>
 
 PerlinNoise::PerlinNoise(unsigned int seed)
 {
