@@ -83,15 +83,23 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
     // Generate chunks in a square around the player
     int chunksGenerated = 0;
 
-    for (int x = playerChunk.x - renderDistance; x <= playerChunk.x + renderDistance; x++)
+    for (int x = playerChunk.x - renderDistance - ADD_CALCULATION_DISTANCE; x <= playerChunk.x + renderDistance + ADD_CALCULATION_DISTANCE; x++)
     {
-        for (int z = playerChunk.y - renderDistance; z <= playerChunk.y + renderDistance; z++)
+        for (int z = playerChunk.y - renderDistance - ADD_CALCULATION_DISTANCE; z <= playerChunk.y + renderDistance + ADD_CALCULATION_DISTANCE; z++)
         {
+            Chunk* chunk = chunkManager.getChunk(x, z);
+
             // Check if this chunk already exists
-            if (chunkManager.getChunk(x, z) == nullptr)
+            if (chunk == nullptr || !chunk->isMeshGenerated())
             {
-                // Chunk doesn't exist, so generate it
-                chunkManager.generateSingleChunk(x, z);
+				// Render only chunks within the render distance but NOT calculation distance
+                bool markDirty =
+                    x >= playerChunk.x - renderDistance && x <= playerChunk.x + renderDistance &&
+                    z >= playerChunk.y - renderDistance && z <= playerChunk.y + renderDistance;
+
+				std::cout << "[DEBUG] Dirty: " << markDirty << ", at: " << x << " " << z << ". Center: " << playerChunk.x << " " << playerChunk.y << std::endl;
+
+                chunkManager.generateSingleChunk(x, z, markDirty);
                 chunksGenerated++;
             }
         }
@@ -105,9 +113,9 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 
 void WorldRenderer::removeDistantChunks(const glm::ivec2& playerChunk)
 {
-    // Remove chunks that are further than (renderDistance + 1) from the player
-    int removeDistance = renderDistance + 2;  // Extra buffer for smooth experience
-    int chunksRemoved = chunkManager.removeDistantChunks(playerChunk.x, playerChunk.y, removeDistance);
+    int removeMeshDistance = renderDistance;
+    int removeDataDistance = renderDistance + ADD_CALCULATION_DISTANCE;
+    int chunksRemoved = chunkManager.removeDistantChunks(playerChunk.x, playerChunk.y, removeDataDistance, removeMeshDistance);
 
     if (chunksRemoved > 0)
     {

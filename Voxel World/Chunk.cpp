@@ -33,9 +33,6 @@ Chunk::Chunk(int chunkX, int chunkZ, PerlinNoise* noise) : chunkX(chunkX), chunk
     {
         generateTerrain();
     }
-
-    // Generate the mesh data
-    generateMesh();
 }
 
 void Chunk::generateTerrain()
@@ -123,7 +120,7 @@ glm::vec3 Chunk::getTerrainColor(int height) const
     }
 }
 
-// NEW: Calculate ambient occlusion for a vertex
+// Calculate ambient occlusion for a vertex
 float Chunk::calculateVertexAO(int x, int y, int z, const glm::vec3& normal, const glm::vec3& vertexOffset) const
 {
     // The key insight: we need to check neighbors RELATIVE TO THE FACE, not the voxel center
@@ -181,317 +178,6 @@ float Chunk::calculateVertexAO(int x, int y, int z, const glm::vec3& normal, con
     }
 }
 
-void Chunk::generateMesh()
-{
-    vertices.clear();
-    indices.clear();
-
-    for (int x = 0; x < CHUNK_SIZE; x++)
-    {
-        for (int z = 0; z < CHUNK_SIZE; z++)
-        {
-            for (int y = 0; y < MAX_HEIGHT; y++)
-            {
-                if (hasCubeAt(x, y, z))
-                {
-                    float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
-                    float worldY = y * CUBE_SIZE;
-                    float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
-
-                    glm::vec3 color = getTerrainColor(y);
-                    float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f;
-
-                    color += glm::vec3(variation);
-                    color = glm::clamp(color, 0.0f, 1.0f);
-
-                    // Generate faces with ambient occlusion
-                    addCubeWithCullingAndAO(worldX, worldY, worldZ, color, x, y, z);
-                }
-            }
-        }
-    }
-}
-
-void Chunk::addCubeWithCullingAndAO(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ)
-{
-    // Check which faces should be rendered based on neighbors
-    bool renderFront = !hasCubeAt(localX, localY, localZ + 1);  // +Z direction
-    bool renderBack = !hasCubeAt(localX, localY, localZ - 1);   // -Z direction
-    bool renderRight = !hasCubeAt(localX + 1, localY, localZ);  // +X direction
-    bool renderLeft = !hasCubeAt(localX - 1, localY, localZ);   // -X direction
-    bool renderTop = !hasCubeAt(localX, localY + 1, localZ);    // +Y direction
-    bool renderBottom = !hasCubeAt(localX, localY - 1, localZ); // -Y direction
-
-    if (renderFront)
-    {
-        // Front face (Z+) with AO calculation
-        glm::vec3 normal(0, 0, 1);
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-
-        // Calculate AO for each vertex of this face
-        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f));
-        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f));
-        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f));
-        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f));
-
-        vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao1},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao2},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
-            });
-
-        // Adjust triangle winding based on AO to prevent visual artifacts
-        // This ensures smooth gradients across triangulated quads
-        if (ao0 + ao2 > ao1 + ao3)
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 0, baseIndex + 1, baseIndex + 2,
-                baseIndex + 2, baseIndex + 3, baseIndex + 0
-                });
-        }
-        else
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 1, baseIndex + 2, baseIndex + 3,
-                baseIndex + 3, baseIndex + 0, baseIndex + 1
-                });
-        }
-    }
-
-    if (renderBack)
-    {
-        // Back face (Z-) with AO
-        glm::vec3 normal(0, 0, -1);
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-
-        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f));
-        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f));
-        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f));
-        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f));
-
-        vertices.insert(vertices.end(), {
-            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
-            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
-            });
-
-        if (ao0 + ao2 > ao1 + ao3)
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 0, baseIndex + 1, baseIndex + 2,
-                baseIndex + 2, baseIndex + 3, baseIndex + 0
-                });
-        }
-        else
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 1, baseIndex + 2, baseIndex + 3,
-                baseIndex + 3, baseIndex + 0, baseIndex + 1
-                });
-        }
-    }
-
-    if (renderLeft)
-    {
-        // Left face (X-) with AO
-        glm::vec3 normal(-1, 0, 0);
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-
-        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f));
-        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f));
-        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f));
-        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f));
-
-        vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
-            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao1},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao2},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
-            });
-
-        if (ao0 + ao2 > ao1 + ao3)
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 0, baseIndex + 1, baseIndex + 2,
-                baseIndex + 2, baseIndex + 3, baseIndex + 0
-                });
-        }
-        else
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 1, baseIndex + 2, baseIndex + 3,
-                baseIndex + 3, baseIndex + 0, baseIndex + 1
-                });
-        }
-    }
-
-    if (renderRight)
-    {
-        // Right face (X+) with AO
-        glm::vec3 normal(1, 0, 0);
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-
-        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f));
-        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f));
-        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f));
-        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f));
-
-        vertices.insert(vertices.end(), {
-            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
-            });
-
-        if (ao0 + ao2 > ao1 + ao3)
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 0, baseIndex + 1, baseIndex + 2,
-                baseIndex + 2, baseIndex + 3, baseIndex + 0
-                });
-        }
-        else
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 1, baseIndex + 2, baseIndex + 3,
-                baseIndex + 3, baseIndex + 0, baseIndex + 1
-                });
-        }
-    }
-
-    if (renderTop)
-    {
-        // Top face (Y+) with AO
-        glm::vec3 normal(0, 1, 0);
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-
-        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f));
-        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f));
-        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f));
-        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f));
-
-        vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao0},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao1},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
-            });
-
-        if (ao0 + ao2 > ao1 + ao3)
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 0, baseIndex + 1, baseIndex + 2,
-                baseIndex + 2, baseIndex + 3, baseIndex + 0
-                });
-        }
-        else
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 1, baseIndex + 2, baseIndex + 3,
-                baseIndex + 3, baseIndex + 0, baseIndex + 1
-                });
-        }
-    }
-
-    if (renderBottom)
-    {
-        // Bottom face (Y-) with AO
-        glm::vec3 normal(0, -1, 0);
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-
-        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f));
-        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f));
-        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f));
-        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f));
-
-        vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao2},
-            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao3}
-            });
-
-        if (ao0 + ao2 > ao1 + ao3)
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 0, baseIndex + 1, baseIndex + 2,
-                baseIndex + 2, baseIndex + 3, baseIndex + 0
-                });
-        }
-        else
-        {
-            indices.insert(indices.end(), {
-                baseIndex + 1, baseIndex + 2, baseIndex + 3,
-                baseIndex + 3, baseIndex + 0, baseIndex + 1
-                });
-        }
-    }
-}
-
-// ... (rest of the implementation remains the same: addCube, ChunkManager, etc.)
-
-void Chunk::addCube(float worldX, float worldY, float worldZ, glm::vec3 color)
-{
-    // Get the current vertex count (for index calculation)
-    uint16_t baseIndex = static_cast<uint16_t>(vertices.size());
-
-    // Define cube vertices (8 vertices total)
-    // Note: This method doesn't use AO - it's the old implementation
-    std::vector<Vertex> cubeVertices = {
-        // Front face vertices (Z+)
-        {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, 1.0f},  // Full brightness (no AO)
-        {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, 1.0f},
-        {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, 1.0f},
-        {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, 1.0f},
-
-        // Back face vertices (Z-)
-        {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, 1.0f},
-        {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, 1.0f},
-        {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, 1.0f},
-        {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, 1.0f},
-    };
-
-    // Add vertices to our chunk's vertex list
-    vertices.insert(vertices.end(), cubeVertices.begin(), cubeVertices.end());
-
-    // Define indices with correct counter-clockwise winding
-    std::vector<uint16_t> cubeIndices = {
-        // Front face (Z+): 0,1,2 and 2,3,0
-        static_cast<uint16_t>(baseIndex + 0), static_cast<uint16_t>(baseIndex + 1), static_cast<uint16_t>(baseIndex + 2),
-        static_cast<uint16_t>(baseIndex + 2), static_cast<uint16_t>(baseIndex + 3), static_cast<uint16_t>(baseIndex + 0),
-
-        // Back face (Z-): When viewed from outside (negative Z direction), we see this face
-        // Order: 5,4,7 and 7,6,5 (counter-clockwise when viewed from negative Z)
-        static_cast<uint16_t>(baseIndex + 5), static_cast<uint16_t>(baseIndex + 4), static_cast<uint16_t>(baseIndex + 7),
-        static_cast<uint16_t>(baseIndex + 7), static_cast<uint16_t>(baseIndex + 6), static_cast<uint16_t>(baseIndex + 5),
-
-        // Left face (X-): When viewed from outside (negative X direction)
-        // Order: 4,0,3 and 3,7,4 (counter-clockwise when viewed from negative X)
-        static_cast<uint16_t>(baseIndex + 4), static_cast<uint16_t>(baseIndex + 0), static_cast<uint16_t>(baseIndex + 3),
-        static_cast<uint16_t>(baseIndex + 3), static_cast<uint16_t>(baseIndex + 7), static_cast<uint16_t>(baseIndex + 4),
-
-        // Right face (X+): When viewed from outside (positive X direction)
-        // Order: 1,5,6 and 6,2,1 (counter-clockwise when viewed from positive X)
-        static_cast<uint16_t>(baseIndex + 1), static_cast<uint16_t>(baseIndex + 5), static_cast<uint16_t>(baseIndex + 6),
-        static_cast<uint16_t>(baseIndex + 6), static_cast<uint16_t>(baseIndex + 2), static_cast<uint16_t>(baseIndex + 1),
-
-        // Top face (Y+): When viewed from outside (positive Y direction)
-        // Order: 3,2,6 and 6,7,3 (counter-clockwise when viewed from positive Y)
-        static_cast<uint16_t>(baseIndex + 3), static_cast<uint16_t>(baseIndex + 2), static_cast<uint16_t>(baseIndex + 6),
-        static_cast<uint16_t>(baseIndex + 6), static_cast<uint16_t>(baseIndex + 7), static_cast<uint16_t>(baseIndex + 3),
-
-        // Bottom face (Y-): When viewed from outside (negative Y direction)
-        // Order: 1,0,4 and 4,5,1 (counter-clockwise when viewed from negative Y)
-        static_cast<uint16_t>(baseIndex + 1), static_cast<uint16_t>(baseIndex + 0), static_cast<uint16_t>(baseIndex + 4),
-        static_cast<uint16_t>(baseIndex + 4), static_cast<uint16_t>(baseIndex + 5), static_cast<uint16_t>(baseIndex + 1)
-    };
-
-    // Add indices to our chunk's index list
-    indices.insert(indices.end(), cubeIndices.begin(), cubeIndices.end());
-}
-
 void Chunk::localToWorld(int localX, int localY, int localZ, int& worldX, int& worldY, int& worldZ) const
 {
     worldX = chunkX * CHUNK_SIZE + localX;
@@ -499,7 +185,7 @@ void Chunk::localToWorld(int localX, int localY, int localZ, int& worldX, int& w
     worldZ = chunkZ * CHUNK_SIZE + localZ;
 }
 
-// NEW: Check if cube exists at world coordinates using ChunkManager
+// Check if cube exists at world coordinates using ChunkManager
 bool Chunk::hasCubeAtWorld(int worldX, int worldY, int worldZ, ChunkManager* manager) const
 {
     if (manager == nullptr)
@@ -515,7 +201,7 @@ bool Chunk::hasCubeAtWorld(int worldX, int worldY, int worldZ, ChunkManager* man
     return manager->hasCubeAtWorld(worldX, worldY, worldZ);
 }
 
-// NEW: Generate mesh using ChunkManager for cross-chunk AO
+// Generate mesh using ChunkManager for cross-chunk AO
 void Chunk::generateMeshWithManager(ChunkManager* manager)
 {
     vertices.clear();
@@ -547,7 +233,7 @@ void Chunk::generateMeshWithManager(ChunkManager* manager)
     }
 }
 
-// NEW: Calculate AO with cross-chunk support
+// Calculate AO with cross-chunk support
 float Chunk::calculateVertexAOCrossChunk(int localX, int localY, int localZ, const glm::vec3& normal, const glm::vec3& vertexOffset, ChunkManager* manager) const
 {
     // Convert vertex offset to integer directions for neighbor checking
@@ -600,7 +286,7 @@ float Chunk::calculateVertexAOCrossChunk(int localX, int localY, int localZ, con
     }
 }
 
-// NEW: Add cube with cross-chunk culling and AO
+// Add cube with cross-chunk culling and AO
 void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ, ChunkManager* manager)
 {
     // Convert local coordinates to world coordinates for cross-chunk neighbor checking
@@ -650,9 +336,6 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
                 });
         }
     }
-
-    // Repeat similar pattern for other faces (renderBack, renderLeft, renderRight, renderTop, renderBottom)
-    // I'll show one more example and you can apply the same pattern to the rest
 
     if (renderBack)
     {
@@ -828,7 +511,7 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
     }
 }
 
-// NEW: ChunkManager methods for cross-chunk support
+// ChunkManager methods for cross-chunk support
 
 ChunkManager::ChunkManager() : noiseGenerator(12345)
 {
@@ -844,13 +527,18 @@ uint64_t ChunkManager::chunkCoordsToKey(int chunkX, int chunkZ) const
 }
 
 // OPTIMIZED: Only generate chunk, don't regenerate all meshes
-void ChunkManager::generateSingleChunk(int chunkX, int chunkZ)
+void ChunkManager::generateSingleChunk(int chunkX, int chunkZ, bool markDirty)
 {
     uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
 
     // Check if chunk already exists
     if (chunks.find(key) != chunks.end())
     {
+        if (markDirty)
+        {
+            markChunkDirty(chunkX, chunkZ);
+        }
+
         return; // Chunk already exists, don't create duplicate
     }
 
@@ -858,14 +546,17 @@ void ChunkManager::generateSingleChunk(int chunkX, int chunkZ)
     chunks.emplace(key, Chunk(chunkX, chunkZ, &noiseGenerator));
 
     // Mark this chunk and its neighbors as needing mesh updates
-    markChunkAndNeighborsDirty(chunkX, chunkZ);
+    if (markDirty)
+    {
+        markChunkDirty(chunkX, chunkZ);
+    }
 }
 
 // OPTIMIZED: Track which chunks were removed and mark neighbors dirty
-int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDistance)
+int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance)
 {
-    std::vector<uint64_t> chunksToRemove;
-    std::vector<std::pair<int, int>> removedPositions;
+    std::vector<uint64_t> chunkMeshToRemove;
+    std::vector<uint64_t> chunkDataToRemove;
 
     // Find chunks to remove
     for (const auto& pair : chunks)
@@ -876,46 +567,51 @@ int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDistance)
         int deltaZ = chunk.getChunkZ() - centerZ;
         int distance = std::max(std::abs(deltaX), std::abs(deltaZ));
 
-        if (distance > maxDistance)
+        if (distance > maxDataDistance)
         {
-            chunksToRemove.push_back(pair.first);
-            removedPositions.emplace_back(chunk.getChunkX(), chunk.getChunkZ());
+            chunkDataToRemove.push_back(pair.first);
         }
+        else if( distance > maxMeshDistance)
+        {
+            chunkMeshToRemove.push_back(pair.first);
+		}
     }
 
     // Remove the distant chunks
-    for (uint64_t key : chunksToRemove)
+    for (uint64_t key : chunkDataToRemove)
     {
         auto it = chunks.find(key);
         if (it != chunks.end())
         {
-            std::cout << "Removing distant chunk at ("
+            /*std::cout << "Removing distant chunk data at ("
                 << it->second.getChunkX() << ", "
                 << it->second.getChunkZ() << ")" << std::endl;
-
+                */
             // Remove from dirty set if it was there
-            dirtyChunks.erase(key);
+            chunksToDraw.erase(key);
             chunks.erase(it);
         }
     }
 
-    // Mark neighbors of removed chunks as dirty (they might need AO updates)
-    for (const auto& pos : removedPositions)
+    for (uint64_t key : chunkMeshToRemove)
     {
-        for (const auto& neighbor : getNeighborCoordinates(pos.first, pos.second))
+        auto it = chunks.find(key);
+        if (it != chunks.end())
         {
-            uint64_t neighborKey = chunkCoordsToKey(neighbor.first, neighbor.second);
-            if (chunks.find(neighborKey) != chunks.end())
-            {
-                dirtyChunks.insert(neighborKey);
-            }
+            /*std::cout << "Removing distant chunk mesh at ("
+                << it->second.getChunkX() << ", "
+                << it->second.getChunkZ() << ")" << std::endl;
+            */
+            // Remove from dirty set if it was there
+            chunksToDraw.erase(key);
+            it->second.clearMesh();
         }
     }
 
-    return static_cast<int>(chunksToRemove.size());
+    return static_cast<int>(chunkDataToRemove.size());
 }
 
-// NEW: Get neighboring chunk coordinates
+// Get neighboring chunk coordinates
 std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX, int chunkZ) const
 {
     return {
@@ -925,37 +621,29 @@ std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX
     };
 }
 
-// NEW: Mark chunk and neighbors as needing mesh updates
-void ChunkManager::markChunkAndNeighborsDirty(int chunkX, int chunkZ)
+// Mark chunk and neighbors as needing mesh updates
+void ChunkManager::markChunkDirty(int chunkX, int chunkZ)
 {
     // Mark the chunk itself
     uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-    dirtyChunks.insert(key);
-
-    // Mark all neighboring chunks (they need AO updates due to new chunk)
-    for (const auto& neighbor : getNeighborCoordinates(chunkX, chunkZ))
-    {
-        uint64_t neighborKey = chunkCoordsToKey(neighbor.first, neighbor.second);
-        if (chunks.find(neighborKey) != chunks.end())
-        {
-            dirtyChunks.insert(neighborKey);
-        }
-    }
+    chunksToDraw.insert(key);
 }
 
 // OPTIMIZED: Only update meshes that need it
 void ChunkManager::updateMeshes()
 {
-    if (dirtyChunks.empty())
+	std::cout << "[DEBUG] Need to render mesh of this many chunks: " << chunksToDraw.size() << std::endl;
+
+    if (chunksToDraw.empty())
     {
         return; // Nothing to update
     }
 
-    std::cout << "Updating meshes for " << dirtyChunks.size() << " chunks..." << std::endl;
+    std::cout << "Updating meshes for " << chunksToDraw.size() << " chunks..." << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Update only dirty chunks
-    for (uint64_t key : dirtyChunks)
+    for (uint64_t key : chunksToDraw)
     {
         auto it = chunks.find(key);
         if (it != chunks.end())
@@ -968,44 +656,16 @@ void ChunkManager::updateMeshes()
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
     std::cout << "Mesh update completed in " << duration.count() << "ms for "
-        << dirtyChunks.size() << " chunks" << std::endl;
+        << chunksToDraw.size() << " chunks" << std::endl;
 
     // Clear dirty chunks
-    dirtyChunks.clear();
+    chunksToDraw.clear();
 }
 
-// NEW: Get count of chunks needing mesh updates
+// Get count of chunks needing mesh updates
 int ChunkManager::getChunksNeedingMeshUpdate() const
 {
-    return static_cast<int>(dirtyChunks.size());
-}
-
-// UPDATED: Use the new optimized system
-void ChunkManager::generateTerrain(int chunksX, int chunksZ)
-{
-    chunks.clear();
-    dirtyChunks.clear();
-
-    // Generate chunks in a grid pattern around origin
-    int startX = -chunksX / 2;
-    int startZ = -chunksZ / 2;
-
-    // First pass: Create all chunks without mesh generation
-    for (int x = 0; x < chunksX; x++)
-    {
-        for (int z = 0; z < chunksZ; z++)
-        {
-            int chunkX = startX + x;
-            int chunkZ = startZ + z;
-
-            uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-            chunks.emplace(key, Chunk(chunkX, chunkZ, &noiseGenerator));
-            dirtyChunks.insert(key);
-        }
-    }
-
-    // Second pass: Generate all meshes at once
-    updateMeshes();
+    return static_cast<int>(chunksToDraw.size());
 }
 
 // Keep these methods the same as before:

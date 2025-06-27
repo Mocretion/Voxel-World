@@ -75,7 +75,7 @@ void VoxelWorld::initComponents()
     inputManager->setToggleMouseCaptureCallback([this]() { toggleMouseCapture(); });
     inputManager->setWindowResizeCallback([this](uint32_t w, uint32_t h) { handleWindowResize(w, h); });
 
-    // NEW: Set up render distance callbacks
+    // Set up render distance callbacks
     inputManager->setIncreaseRenderDistanceCallback([this]() { increaseRenderDistance(); });
     inputManager->setDecreaseRenderDistanceCallback([this]() { decreaseRenderDistance(); });
 
@@ -85,7 +85,7 @@ void VoxelWorld::initComponents()
     // Initialize world renderer
     worldRenderer = std::make_unique<WorldRenderer>(renderer.get());
 
-    // NEW: Set initial render distance
+    // Set initial render distance
     worldRenderer->setRenderDistance(renderDistance);
 
     // Enable mouse capture by default
@@ -109,7 +109,7 @@ void VoxelWorld::mainLoop()
             break; // User wants to quit
         }
 
-        // NEW: Update world based on camera position (infinite terrain)
+        // Update world based on camera position (infinite terrain)
         worldRenderer->updateWorld(*camera);
 
         // Begin rendering
