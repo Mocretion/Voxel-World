@@ -568,3 +568,384 @@ Chunk* ChunkManager::getChunk(int chunkX, int chunkZ)
     }
     return nullptr;  // Not found (like returning null in C#)
 }
+
+void Chunk::localToWorld(int localX, int localY, int localZ, int& worldX, int& worldY, int& worldZ) const
+{
+    worldX = chunkX * CHUNK_SIZE + localX;
+    worldY = localY;  // Y coordinates are already world coordinates
+    worldZ = chunkZ * CHUNK_SIZE + localZ;
+}
+
+// NEW: Check if cube exists at world coordinates using ChunkManager
+bool Chunk::hasCubeAtWorld(int worldX, int worldY, int worldZ, ChunkManager* manager) const
+{
+    if (manager == nullptr)
+    {
+        // Fallback to local checking if no manager available
+        // Convert world coords back to local for bounds checking
+        int localX = worldX - (chunkX * CHUNK_SIZE);
+        int localY = worldY;
+        int localZ = worldZ - (chunkZ * CHUNK_SIZE);
+        return hasCubeAt(localX, localY, localZ);
+    }
+
+    return manager->hasCubeAtWorld(worldX, worldY, worldZ);
+}
+
+// NEW: Generate mesh using ChunkManager for cross-chunk AO
+void Chunk::generateMeshWithManager(ChunkManager* manager)
+{
+    vertices.clear();
+    indices.clear();
+
+    for (int x = 0; x < CHUNK_SIZE; x++)
+    {
+        for (int z = 0; z < CHUNK_SIZE; z++)
+        {
+            for (int y = 0; y < MAX_HEIGHT; y++)
+            {
+                if (hasCubeAt(x, y, z))
+                {
+                    float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
+                    float worldY = y * CUBE_SIZE;
+                    float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
+
+                    glm::vec3 color = getTerrainColor(y);
+                    float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f;
+
+                    color += glm::vec3(variation);
+                    color = glm::clamp(color, 0.0f, 1.0f);
+
+                    // Generate faces with cross-chunk ambient occlusion
+                    addCubeWithCullingAndAOCrossChunk(worldX, worldY, worldZ, color, x, y, z, manager);
+                }
+            }
+        }
+    }
+}
+
+// NEW: Calculate AO with cross-chunk support
+float Chunk::calculateVertexAOCrossChunk(int localX, int localY, int localZ, const glm::vec3& normal, const glm::vec3& vertexOffset, ChunkManager* manager) const
+{
+    // Convert vertex offset to integer directions for neighbor checking
+    int dx = static_cast<int>(vertexOffset.x * 2.0f);  // *2 because offset is ±0.5
+    int dy = static_cast<int>(vertexOffset.y * 2.0f);
+    int dz = static_cast<int>(vertexOffset.z * 2.0f);
+
+    // For each vertex, we check 3 neighbors: 2 edge neighbors and 1 corner neighbor
+    int side1 = 0, side2 = 0, corner = 0;
+
+    // Convert local coordinates to world coordinates for cross-chunk queries
+    int worldX, worldY, worldZ;
+    localToWorld(localX, localY, localZ, worldX, worldY, worldZ);
+
+    // Determine which neighbors to check based on the face normal and vertex position
+    if (std::abs(normal.x) > 0.5f) // X-facing normal (left/right face)
+    {
+        int offsetX = normal.x > 0 ? 1 : -1;  // Move outside the current voxel
+
+        // Use world coordinates for cross-chunk queries
+        side1 = hasCubeAtWorld(worldX + offsetX, worldY + dy, worldZ, manager) ? 1 : 0;      // Y direction neighbor
+        side2 = hasCubeAtWorld(worldX + offsetX, worldY, worldZ + dz, manager) ? 1 : 0;      // Z direction neighbor
+        corner = hasCubeAtWorld(worldX + offsetX, worldY + dy, worldZ + dz, manager) ? 1 : 0; // Corner neighbor
+    }
+    else if (std::abs(normal.y) > 0.5f) // Y-facing normal (top/bottom face)
+    {
+        int offsetY = normal.y > 0 ? 1 : -1;  // Move outside the current voxel
+
+        side1 = hasCubeAtWorld(worldX + dx, worldY + offsetY, worldZ, manager) ? 1 : 0;      // X direction neighbor
+        side2 = hasCubeAtWorld(worldX, worldY + offsetY, worldZ + dz, manager) ? 1 : 0;      // Z direction neighbor
+        corner = hasCubeAtWorld(worldX + dx, worldY + offsetY, worldZ + dz, manager) ? 1 : 0; // Corner neighbor
+    }
+    else // Z-facing normal (front/back face)
+    {
+        int offsetZ = normal.z > 0 ? 1 : -1;  // Move outside the current voxel
+
+        side1 = hasCubeAtWorld(worldX + dx, worldY, worldZ + offsetZ, manager) ? 1 : 0;      // X direction neighbor
+        side2 = hasCubeAtWorld(worldX, worldY + dy, worldZ + offsetZ, manager) ? 1 : 0;      // Y direction neighbor
+        corner = hasCubeAtWorld(worldX + dx, worldY + dy, worldZ + offsetZ, manager) ? 1 : 0; // Corner neighbor
+    }
+
+    // Calculate AO using the standard voxel AO formula
+    if (side1 && side2)
+    {
+        return 0.25f;  // Both sides blocked = heavily occluded
+    }
+    else
+    {
+        return 1.0f - (side1 + side2 + corner) * 0.25f;  // Gradual occlusion
+    }
+}
+
+// NEW: Add cube with cross-chunk culling and AO
+void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ, ChunkManager* manager)
+{
+    // Convert local coordinates to world coordinates for cross-chunk neighbor checking
+    int worldCubeX, worldCubeY, worldCubeZ;
+    localToWorld(localX, localY, localZ, worldCubeX, worldCubeY, worldCubeZ);
+
+    // Check which faces should be rendered based on cross-chunk neighbors
+    bool renderFront = !hasCubeAtWorld(worldCubeX, worldCubeY, worldCubeZ + 1, manager);   // +Z direction
+    bool renderBack = !hasCubeAtWorld(worldCubeX, worldCubeY, worldCubeZ - 1, manager);    // -Z direction
+    bool renderRight = !hasCubeAtWorld(worldCubeX + 1, worldCubeY, worldCubeZ, manager);   // +X direction
+    bool renderLeft = !hasCubeAtWorld(worldCubeX - 1, worldCubeY, worldCubeZ, manager);    // -X direction
+    bool renderTop = !hasCubeAtWorld(worldCubeX, worldCubeY + 1, worldCubeZ, manager);     // +Y direction
+    bool renderBottom = !hasCubeAtWorld(worldCubeX, worldCubeY - 1, worldCubeZ, manager);  // -Y direction
+
+    if (renderFront)
+    {
+        // Front face (Z+) with cross-chunk AO calculation
+        glm::vec3 normal(0, 0, 1);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        // Calculate cross-chunk AO for each vertex of this face
+        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager);
+        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager);
+        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager);
+        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager);
+
+        vertices.insert(vertices.end(), {
+            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
+            });
+
+        // Adjust triangle winding based on AO
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
+    }
+
+    // Repeat similar pattern for other faces (renderBack, renderLeft, renderRight, renderTop, renderBottom)
+    // I'll show one more example and you can apply the same pattern to the rest
+
+    if (renderBack)
+    {
+        // Back face (Z-) with cross-chunk AO
+        glm::vec3 normal(0, 0, -1);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager);
+        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager);
+        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager);
+        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager);
+
+        vertices.insert(vertices.end(), {
+            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
+            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
+            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
+    }
+
+    // Continue with renderLeft, renderRight, renderTop, renderBottom...
+    // (Apply the same pattern but with appropriate normals and vertex offsets)
+
+    if (renderLeft)
+    {
+        // Left face (X-) with cross-chunk AO
+        glm::vec3 normal(-1, 0, 0);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager);
+        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager);
+        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager);
+        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager);
+
+        vertices.insert(vertices.end(), {
+            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
+            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao1},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
+            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
+    }
+
+    if (renderRight)
+    {
+        // Right face (X+) with cross-chunk AO
+        glm::vec3 normal(1, 0, 0);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager);
+        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager);
+        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager);
+        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager);
+
+        vertices.insert(vertices.end(), {
+            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
+            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
+    }
+
+    if (renderTop)
+    {
+        // Top face (Y+) with cross-chunk AO
+        glm::vec3 normal(0, 1, 0);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager);
+        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager);
+        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager);
+        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager);
+
+        vertices.insert(vertices.end(), {
+            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
+            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
+    }
+
+    if (renderBottom)
+    {
+        // Bottom face (Y-) with cross-chunk AO
+        glm::vec3 normal(0, -1, 0);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager);
+        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager);
+        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager);
+        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager);
+
+        vertices.insert(vertices.end(), {
+            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao3}
+            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
+    }
+}
+
+// NEW: ChunkManager methods for cross-chunk support
+
+void ChunkManager::worldToChunkAndLocal(int worldX, int worldY, int worldZ, int& chunkX, int& chunkZ, int& localX, int& localY, int& localZ) const
+{
+    // Calculate which chunk these world coordinates belong to
+    // This handles negative coordinates correctly using integer division
+    chunkX = worldX < 0 ? (worldX - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldX / Chunk::CHUNK_SIZE;
+    chunkZ = worldZ < 0 ? (worldZ - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldZ / Chunk::CHUNK_SIZE;
+
+    // Calculate local coordinates within the chunk
+    localX = worldX - chunkX * Chunk::CHUNK_SIZE;
+    localY = worldY;  // Y coordinates are already local
+    localZ = worldZ - chunkZ * Chunk::CHUNK_SIZE;
+
+    // Ensure local coordinates are in valid range [0, CHUNK_SIZE-1]
+    if (localX < 0) localX += Chunk::CHUNK_SIZE;
+    if (localZ < 0) localZ += Chunk::CHUNK_SIZE;
+}
+
+bool ChunkManager::hasCubeAtWorld(int worldX, int worldY, int worldZ) const
+{
+    // Convert world coordinates to chunk and local coordinates
+    int chunkX, chunkZ, localX, localY, localZ;
+    worldToChunkAndLocal(worldX, worldY, worldZ, chunkX, chunkZ, localX, localY, localZ);
+
+    // Find the chunk
+    Chunk* chunk = const_cast<ChunkManager*>(this)->getChunk(chunkX, chunkZ);
+    if (chunk == nullptr)
+    {
+        return false;  // No chunk exists at this location
+    }
+
+    // Check if cube exists in that chunk
+    return chunk->hasCubeAt(localX, localY, localZ);
+}
+
+void ChunkManager::regenerateAllMeshes()
+{
+    // Regenerate all chunk meshes with cross-chunk AO support
+    for (auto& chunk : chunks)
+    {
+        chunk.generateMeshWithManager(this);
+    }
+}

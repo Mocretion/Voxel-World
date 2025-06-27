@@ -13,12 +13,17 @@ void WorldRenderer::generateWorld(int chunksX, int chunksZ)
     // Generate the terrain using the chunk manager
     chunkManager.generateTerrain(chunksX, chunksZ);
 
+    // IMPORTANT: Regenerate all meshes with cross-chunk AO support
+    // This must be done AFTER all chunks are generated so neighbor data is available
+    std::cout << "Regenerating meshes with cross-chunk ambient occlusion..." << std::endl;
+    chunkManager.regenerateAllMeshes();
+
     // Get all vertices and indices from the chunks
     std::vector<Vertex> allVertices = chunkManager.getAllVertices();
     std::vector<uint32_t> allIndices = chunkManager.getAllIndices();
 
     std::cout << "Generated " << allVertices.size() << " vertices and "
-        << allIndices.size() << " indices" << std::endl;
+        << allIndices.size() << " indices with cross-chunk AO" << std::endl;
 
     // Upload the mesh data to the Vulkan renderer
     vulkanRenderer->updateMeshData(allVertices, allIndices);
