@@ -13,4 +13,4 @@ if %errorlevel% neq 0 (
 )
 
 echo Shaders compiled successfully!
-pause
+::pause

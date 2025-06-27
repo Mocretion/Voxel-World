@@ -1,4 +1,4 @@
-#include "Chunk.h"
+﻿#include "Chunk.h"
 #include <random>
 #include <algorithm>
 #include <iostream>
@@ -9,7 +9,7 @@ const float Chunk::CUBE_SIZE = 1.0f;
 // Chunk Constructor
 Chunk::Chunk(int chunkX, int chunkZ, PerlinNoise* noise) : chunkX(chunkX), chunkZ(chunkZ), noiseGenerator(noise)
 {
-    // Initialize the 2D vector - like creating new bool[32][32] in C#
+    // Initialize the 3D vector - like creating new bool[32][32][32] in C#
     cubes.resize(CHUNK_SIZE);
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
@@ -39,7 +39,6 @@ Chunk::Chunk(int chunkX, int chunkZ, PerlinNoise* noise) : chunkX(chunkX), chunk
 
 void Chunk::generateTerrain()
 {
-
     // Generate height map using Perlin noise
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
@@ -50,7 +49,6 @@ void Chunk::generateTerrain()
             float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
             // Get noise value using octave noise for more interesting terrain
-            // Parameters: x, y, octaves, persistence, scale
             float noiseValue = noiseGenerator->octaveNoise2D(
                 worldX * 0.01f,  // Scale down for larger features
                 worldZ * 0.01f,
@@ -60,10 +58,7 @@ void Chunk::generateTerrain()
             );
 
             // Convert noise value (-1 to 1) to height (0 to MAX_HEIGHT)
-            // Add base height of 10 and scale by 20
             int height = static_cast<int>(10 + (noiseValue + 1.0f) * 10.0f);
-
-            // Clamp height to valid range
             height = std::max(1, std::min(height, MAX_HEIGHT - 1));
 
             heights[x][z] = height;
@@ -71,7 +66,6 @@ void Chunk::generateTerrain()
             // Fill cubes up to this height
             for (int y = 0; y < height; y++)
             {
-
                 cubes[x][y][z] = true;
             }
         }
@@ -128,13 +122,68 @@ glm::vec3 Chunk::getTerrainColor(int height) const
     }
 }
 
+// NEW: Calculate ambient occlusion for a vertex
+float Chunk::calculateVertexAO(int x, int y, int z, const glm::vec3& normal, const glm::vec3& vertexOffset) const
+{
+    // The key insight: we need to check neighbors RELATIVE TO THE FACE, not the voxel center
+    // We check neighbors that are "outside" the current voxel, adjacent to the rendered face
+
+    // Convert vertex offset to integer directions for neighbor checking
+    int dx = static_cast<int>(vertexOffset.x * 2.0f);  // *2 because offset is ±0.5
+    int dy = static_cast<int>(vertexOffset.y * 2.0f);
+    int dz = static_cast<int>(vertexOffset.z * 2.0f);
+
+    // For each vertex, we check 3 neighbors: 2 edge neighbors and 1 corner neighbor
+    int side1 = 0, side2 = 0, corner = 0;
+
+    // Determine which neighbors to check based on the face normal and vertex position
+    if (std::abs(normal.x) > 0.5f) // X-facing normal (left/right face)
+    {
+        // For X faces, we check neighbors in the Y and Z directions relative to the vertex
+        // We offset by the normal direction to check neighbors "outside" the current voxel
+        int offsetX = normal.x > 0 ? 1 : -1;  // Move outside the current voxel
+
+        side1 = hasCubeAt(x + offsetX, y + dy, z) ? 1 : 0;      // Y direction neighbor
+        side2 = hasCubeAt(x + offsetX, y, z + dz) ? 1 : 0;      // Z direction neighbor
+        corner = hasCubeAt(x + offsetX, y + dy, z + dz) ? 1 : 0; // Corner neighbor
+    }
+    else if (std::abs(normal.y) > 0.5f) // Y-facing normal (top/bottom face)
+    {
+        // For Y faces, we check neighbors in the X and Z directions
+        int offsetY = normal.y > 0 ? 1 : -1;  // Move outside the current voxel
+
+        side1 = hasCubeAt(x + dx, y + offsetY, z) ? 1 : 0;      // X direction neighbor
+        side2 = hasCubeAt(x, y + offsetY, z + dz) ? 1 : 0;      // Z direction neighbor
+        corner = hasCubeAt(x + dx, y + offsetY, z + dz) ? 1 : 0; // Corner neighbor
+    }
+    else // Z-facing normal (front/back face)
+    {
+        // For Z faces, we check neighbors in the X and Y directions
+        int offsetZ = normal.z > 0 ? 1 : -1;  // Move outside the current voxel
+
+        side1 = hasCubeAt(x + dx, y, z + offsetZ) ? 1 : 0;      // X direction neighbor
+        side2 = hasCubeAt(x, y + dy, z + offsetZ) ? 1 : 0;      // Y direction neighbor
+        corner = hasCubeAt(x + dx, y + dy, z + offsetZ) ? 1 : 0; // Corner neighbor
+    }
+
+    // Calculate AO using the standard voxel AO formula
+    // This formula creates smooth gradients based on neighbor configuration
+    if (side1 && side2)
+    {
+        // Both sides blocked = heavily occluded (deep corner)
+        return 0.25f;
+    }
+    else
+    {
+        // Gradual occlusion based on number of blocked neighbors
+        return 1.0f - (side1 + side2 + corner) * 0.25f;
+    }
+}
+
 void Chunk::generateMesh()
 {
     vertices.clear();
     indices.clear();
-
-    int blocksProcessed = 0;
-    int facesAdded = 0;
 
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
@@ -144,35 +193,25 @@ void Chunk::generateMesh()
             {
                 if (hasCubeAt(x, y, z))
                 {
-                    blocksProcessed++;
-
                     float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
                     float worldY = y * CUBE_SIZE;
                     float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
                     glm::vec3 color = getTerrainColor(y);
-					float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f; // +1 * 0.5f to normalize to 0-1 range
-
-					//std::cout << noiseGenerator->noise2D(x, z) * 0.4 << std::endl;
+                    float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f;
 
                     color += glm::vec3(variation);
                     color = glm::clamp(color, 0.0f, 1.0f);
 
-                    size_t verticesBeforeAdd = vertices.size();
-                    addCubeWithCulling(worldX, worldY, worldZ, color, x, y, z);
-                    size_t verticesAfterAdd = vertices.size();
-
-                    if (verticesAfterAdd > verticesBeforeAdd)
-                    {
-                        facesAdded += (verticesAfterAdd - verticesBeforeAdd) / 4;
-                    }
+                    // Generate faces with ambient occlusion
+                    addCubeWithCullingAndAO(worldX, worldY, worldZ, color, x, y, z);
                 }
             }
         }
     }
 }
 
-void Chunk::addCubeWithCulling(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ)
+void Chunk::addCubeWithCullingAndAO(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ)
 {
     // Check which faces should be rendered based on neighbors
     bool renderFront = !hasCubeAt(localX, localY, localZ + 1);  // +Z direction
@@ -182,104 +221,215 @@ void Chunk::addCubeWithCulling(float worldX, float worldY, float worldZ, glm::ve
     bool renderTop = !hasCubeAt(localX, localY + 1, localZ);    // +Y direction
     bool renderBottom = !hasCubeAt(localX, localY - 1, localZ); // -Y direction
 
-    // Add faces one by one, calculating the correct base index for each face
-
     if (renderFront)
     {
-        // Front face (Z+) vertices
-        uint32_t baseIndex = static_cast<uint32_t>(vertices.size()); // Changed to uint32_t
+        // Front face (Z+) with AO calculation
+        glm::vec3 normal(0, 0, 1);
+        uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        // Calculate AO for each vertex of this face
+        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f));
+        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f));
+        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f));
+        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f));
+
         vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color}
+            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
             });
-        indices.insert(indices.end(), {
-            baseIndex + 0, baseIndex + 1, baseIndex + 2,
-            baseIndex + 2, baseIndex + 3, baseIndex + 0
-            });
+
+        // Adjust triangle winding based on AO to prevent visual artifacts
+        // This ensures smooth gradients across triangulated quads
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
     }
 
     if (renderBack)
     {
-        // Back face (Z-) vertices
+        // Back face (Z-) with AO
+        glm::vec3 normal(0, 0, -1);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f));
+        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f));
+        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f));
+        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f));
+
         vertices.insert(vertices.end(), {
-            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
-            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color}
+            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
+            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
             });
-        indices.insert(indices.end(), {
-            baseIndex + 0, baseIndex + 1, baseIndex + 2,
-            baseIndex + 2, baseIndex + 3, baseIndex + 0
-            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
     }
 
     if (renderLeft)
     {
-        // Left face (X-) vertices
+        // Left face (X-) with AO
+        glm::vec3 normal(-1, 0, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f));
+        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f));
+        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f));
+        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f));
+
         vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
-            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color}
+            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
+            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao1},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
             });
-        indices.insert(indices.end(), {
-            baseIndex + 0, baseIndex + 1, baseIndex + 2,
-            baseIndex + 2, baseIndex + 3, baseIndex + 0
-            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
     }
 
     if (renderRight)
     {
-        // Right face (X+) vertices
+        // Right face (X+) with AO
+        glm::vec3 normal(1, 0, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f));
+        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f));
+        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f));
+        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f));
+
         vertices.insert(vertices.end(), {
-            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color}
+            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
             });
-        indices.insert(indices.end(), {
-            baseIndex + 0, baseIndex + 1, baseIndex + 2,
-            baseIndex + 2, baseIndex + 3, baseIndex + 0
-            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
     }
 
     if (renderTop)
     {
-        // Top face (Y+) vertices
+        // Top face (Y+) with AO
+        glm::vec3 normal(0, 1, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f));
+        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f));
+        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f));
+        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f));
+
         vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},
-            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},
-            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color}
+            {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, ao3}
             });
-        indices.insert(indices.end(), {
-            baseIndex + 0, baseIndex + 1, baseIndex + 2,
-            baseIndex + 2, baseIndex + 3, baseIndex + 0
-            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
     }
 
     if (renderBottom)
     {
-        // Bottom face (Y-) vertices
+        // Bottom face (Y-) with AO
+        glm::vec3 normal(0, -1, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+
+        float ao0 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f));
+        float ao1 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f));
+        float ao2 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f));
+        float ao3 = calculateVertexAO(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f));
+
         vertices.insert(vertices.end(), {
-            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},
-            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},
-            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color}
+            {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao1},
+            {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao2},
+            {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao3}
             });
-        indices.insert(indices.end(), {
-            baseIndex + 0, baseIndex + 1, baseIndex + 2,
-            baseIndex + 2, baseIndex + 3, baseIndex + 0
-            });
+
+        if (ao0 + ao2 > ao1 + ao3)
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 0, baseIndex + 1, baseIndex + 2,
+                baseIndex + 2, baseIndex + 3, baseIndex + 0
+                });
+        }
+        else
+        {
+            indices.insert(indices.end(), {
+                baseIndex + 1, baseIndex + 2, baseIndex + 3,
+                baseIndex + 3, baseIndex + 0, baseIndex + 1
+                });
+        }
     }
 }
+
+// ... (rest of the implementation remains the same: addCube, ChunkManager, etc.)
 
 void Chunk::addCube(float worldX, float worldY, float worldZ, glm::vec3 color)
 {
@@ -287,25 +437,25 @@ void Chunk::addCube(float worldX, float worldY, float worldZ, glm::vec3 color)
     uint16_t baseIndex = static_cast<uint16_t>(vertices.size());
 
     // Define cube vertices (8 vertices total)
-    // Using consistent vertex layout for easier index calculation
+    // Note: This method doesn't use AO - it's the old implementation
     std::vector<Vertex> cubeVertices = {
         // Front face vertices (Z+)
-        {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},  // 0: front bottom-left
-        {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color},  // 1: front bottom-right
-        {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},  // 2: front top-right
-        {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color},  // 3: front top-left
+        {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, 1.0f},  // Full brightness (no AO)
+        {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, 1.0f},
+        {{worldX + 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, 1.0f},
+        {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, 1.0f},
 
         // Back face vertices (Z-)
-        {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},  // 4: back bottom-left
-        {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color},  // 5: back bottom-right
-        {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},  // 6: back top-right
-        {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color},  // 7: back top-left
+        {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, 1.0f},
+        {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, 1.0f},
+        {{worldX + 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, 1.0f},
+        {{worldX - 0.5f, worldY + 0.5f, worldZ - 0.5f}, color, 1.0f},
     };
 
     // Add vertices to our chunk's vertex list
     vertices.insert(vertices.end(), cubeVertices.begin(), cubeVertices.end());
 
-    // Define indices with correct counter-clockwise winding (when viewed from outside the cube)
+    // Define indices with correct counter-clockwise winding
     std::vector<uint16_t> cubeIndices = {
         // Front face (Z+): 0,1,2 and 2,3,0
         static_cast<uint16_t>(baseIndex + 0), static_cast<uint16_t>(baseIndex + 1), static_cast<uint16_t>(baseIndex + 2),

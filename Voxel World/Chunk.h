@@ -37,8 +37,8 @@ private:
     int chunkX, chunkZ;  // Chunk coordinates in the world
     PerlinNoise* noiseGenerator;  // Pointer to noise generator
 
-    // 2D array to store which cubes exist (true) or are air (false)
-    // Using vector<vector<bool>> - like bool[32][32] but dynamic
+    // 3D array to store which cubes exist (true) or are air (false)
+    // Using vector<vector<vector<bool>>> - like bool[32][32][32] but dynamic
     static const int MAX_HEIGHT = 32;  // Maximum terrain height
     std::vector<std::vector<std::vector<bool>>> cubes;
 
@@ -48,11 +48,18 @@ private:
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
 
-    // Helper function to add a cube at world position
+    // Helper function to add a cube at world position (old method without AO)
     void addCube(float worldX, float worldY, float worldZ, glm::vec3 color);
 
-    // Helper function to add cube with face culling
-    void addCubeWithCulling(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ);
+    // NEW: Helper function to add cube with face culling AND ambient occlusion
+    void addCubeWithCullingAndAO(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ);
+
+    // NEW: Calculate ambient occlusion for a specific vertex
+    // Parameters:
+    // - x, y, z: local coordinates of the voxel
+    // - normal: face normal (which direction the face is pointing)
+    // - vertexOffset: relative position of the vertex on the face (-0.5 to 0.5)
+    float calculateVertexAO(int x, int y, int z, const glm::vec3& normal, const glm::vec3& vertexOffset) const;
 
     void generateTerrain();
 
