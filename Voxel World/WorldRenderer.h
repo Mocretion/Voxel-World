@@ -11,8 +11,12 @@ class WorldRenderer {
 public:
     WorldRenderer(VulkanRenderer* renderer);
 
-    // Generate and load the world
-    void generateWorld(int chunksX = 5, int chunksZ = 5);
+    // NEW: Set the render distance (in chunks)
+    void setRenderDistance(int distance) { renderDistance = distance; }
+    int getRenderDistance() const { return renderDistance; }
+
+    // NEW: Update world based on player position - this replaces generateWorld
+    void updateWorld(const Camera& camera);
 
     // Render the world with the given camera
     void render(const Camera& camera, float aspectRatio);
@@ -20,13 +24,30 @@ public:
     // Get direction string for HUD
     std::string getDirectionString(const glm::vec3& front) const;
 
+    // NEW: Get current statistics for debugging
+    int getLoadedChunkCount() const;
+    glm::ivec2 getCurrentPlayerChunk() const { return currentPlayerChunk; }
+
+    //int getPendingMeshJobs() const { return chunkManager.getPendingMeshJobs(); }
+
 private:
     VulkanRenderer* vulkanRenderer;
     ChunkManager chunkManager;
 
-    // Cache for mesh data to avoid regenerating every frame
-    bool worldDataLoaded = false;
+    // NEW: Infinite terrain settings
+    int renderDistance = 8;  // How many chunks in each direction to keep loaded
+    glm::ivec2 currentPlayerChunk = glm::ivec2(0, 0);  // Which chunk the player is currently in
+    glm::ivec2 lastUpdateChunk = glm::ivec2(INT_MAX, INT_MAX);  // Last chunk where we updated terrain
 
-    // Helper method to create matrices
+    // Cache for mesh data to avoid regenerating every frame
+    bool worldDataDirty = true;  // Track if we need to regenerate mesh data
+
+    // Helper methods
     UniformBufferObject createUBO(const Camera& camera, float aspectRatio) const;
+
+    // NEW: Infinite terrain helpers
+    glm::ivec2 worldPositionToChunk(const glm::vec3& worldPos) const;
+    void generateChunksAroundPlayer(const glm::ivec2& playerChunk);
+    void removeDistantChunks(const glm::ivec2& playerChunk);
+    void updateMeshData();
 };

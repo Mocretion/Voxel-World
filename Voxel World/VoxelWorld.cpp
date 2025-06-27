@@ -61,70 +61,74 @@ void VoxelWorld::initWindow()
 
 void VoxelWorld::initComponents()
 {
-    // Create all components
-    renderer = std::make_unique<VulkanRenderer>();
-    inputManager = std::make_unique<InputManager>();
-    worldRenderer = std::make_unique<WorldRenderer>(renderer.get());
-    camera = std::make_unique<Camera>(glm::vec3(0.0f, 30.0f, 0.0f));
+    std::cout << "Initializing components..." << std::endl;
 
     // Initialize Vulkan renderer
+    renderer = std::make_unique<VulkanRenderer>();
     renderer->initialize(window, currentWindowWidth, currentWindowHeight);
 
-    // Generate the voxel world
-    worldRenderer->generateWorld(5, 5);
+    // Initialize input manager
+    inputManager = std::make_unique<InputManager>();
 
-    // Set up ALL callbacks in one place
-    std::cout << "[DEBUG] Setting all input callbacks..." << std::endl;
+    // Set up input callbacks
+    inputManager->setToggleWireframeCallback([this]() { toggleWireframe(); });
+    inputManager->setToggleMouseCaptureCallback([this]() { toggleMouseCapture(); });
+    inputManager->setWindowResizeCallback([this](uint32_t w, uint32_t h) { handleWindowResize(w, h); });
 
-    inputManager->setToggleWireframeCallback([this]() {
-        std::cout << "[DEBUG] F1 wireframe callback triggered" << std::endl;
-        toggleWireframe();
-        });
+    // NEW: Set up render distance callbacks
+    inputManager->setIncreaseRenderDistanceCallback([this]() { increaseRenderDistance(); });
+    inputManager->setDecreaseRenderDistanceCallback([this]() { decreaseRenderDistance(); });
 
-    inputManager->setToggleMouseCaptureCallback([this]() {
-        std::cout << "[DEBUG] ESC mouse callback triggered" << std::endl;
-        toggleMouseCapture();
-        });
+    // Initialize camera at a good starting position
+    camera = std::make_unique<Camera>(glm::vec3(0.0f, 35.0f, 0.0f));
 
-    inputManager->setWindowResizeCallback([this](uint32_t width, uint32_t height) {
-        std::cout << "[DEBUG] RESIZE CALLBACK TRIGGERED: " << width << "x" << height << std::endl;
-        handleWindowResize(width, height);
-        });
+    // Initialize world renderer
+    worldRenderer = std::make_unique<WorldRenderer>(renderer.get());
 
-    std::cout << "[DEBUG] All callbacks set. Starting with mouse captured..." << std::endl;
+    // NEW: Set initial render distance
+    worldRenderer->setRenderDistance(renderDistance);
+
+    // Enable mouse capture by default
     inputManager->setMouseCaptured(true);
-    std::cout << "[DEBUG] Initialization complete!" << std::endl;
+
+    std::cout << "All components initialized successfully!" << std::endl;
 }
 
 void VoxelWorld::mainLoop()
 {
-    bool running = true;
+    std::cout << "Starting main loop..." << std::endl;
+    lastFrameTime = std::chrono::high_resolution_clock::now();
 
-    while (inputManager->processEvents(*camera, deltaTime))
+    while (true)
     {
         updateTiming();
 
-        // Try to begin frame - this will return false if window is minimized
-        if (renderer->beginFrame())
+        // Process input events
+        if (!inputManager->processEvents(*camera, deltaTime))
         {
-            // Only render if we successfully began the frame
-            worldRenderer->render(*camera, static_cast<float>(currentWindowWidth) / static_cast<float>(currentWindowHeight));
-            renderer->endFrame();
-        }
-        else
-        {
-            // Window is minimized or needs recreation, just wait a bit
-            SDL_Delay(10); // Wait 10ms to avoid burning CPU
+            break; // User wants to quit
         }
 
-        // Update window title periodically
-        titleUpdateTimer += deltaTime;
-        if (titleUpdateTimer >= TITLE_UPDATE_INTERVAL)
+        // NEW: Update world based on camera position (infinite terrain)
+        worldRenderer->updateWorld(*camera);
+
+        // Begin rendering
+        if (renderer->beginFrame())
         {
-            updateWindowTitle();
-            titleUpdateTimer = 0.0f;
+            // Render the world
+            float aspectRatio = static_cast<float>(renderer->getFrameWidth()) /
+                static_cast<float>(renderer->getFrameHeight());
+            worldRenderer->render(*camera, aspectRatio);
+
+            // End rendering
+            renderer->endFrame();
         }
+
+        // Update window title with debug info
+        updateWindowTitle();
     }
+
+    std::cout << "Main loop ended" << std::endl;
 }
 
 void VoxelWorld::updateTiming()
@@ -142,21 +146,32 @@ void VoxelWorld::updateTiming()
 
 void VoxelWorld::updateWindowTitle()
 {
-    std::string direction = worldRenderer->getDirectionString(camera->getFront());
-    glm::vec3 pos = camera->getPosition();
+    titleUpdateTimer += deltaTime;
 
-    // Get pitch and yaw values from camera using getter methods
-    float pitch = camera->pitch;
-    float yaw = camera->yaw;
+    if (titleUpdateTimer >= TITLE_UPDATE_INTERVAL)
+    {
+        // Get camera position and direction
+        glm::vec3 pos = camera->getPosition();
+        std::string direction = worldRenderer->getDirectionString(camera->getFront());
 
-    std::string title = "Voxel World - Position: (" +
-        std::to_string(static_cast<int>(pos.x)) + ", " +
-        std::to_string(static_cast<int>(pos.y)) + ", " +
-        std::to_string(static_cast<int>(pos.z)) + ") - " + direction +
-        " - Pitch: " + std::to_string(static_cast<int>(pitch)) + "° " +
-        "Yaw: " + std::to_string(static_cast<int>(yaw)) + "°";
+        // Get current chunk and loaded chunk count
+        glm::ivec2 currentChunk = worldRenderer->getCurrentPlayerChunk();
+        int loadedChunks = worldRenderer->getLoadedChunkCount();
 
-    SDL_SetWindowTitle(window, title.c_str());
+        // Create title without threading info
+        std::string title = "Voxel World - Pos: (" +
+            std::to_string(static_cast<int>(pos.x)) + ", " +
+            std::to_string(static_cast<int>(pos.y)) + ", " +
+            std::to_string(static_cast<int>(pos.z)) + ") | " +
+            "Chunk: (" + std::to_string(currentChunk.x) + ", " + std::to_string(currentChunk.y) + ") | " +
+            "Loaded: " + std::to_string(loadedChunks) + " chunks | " +
+            "RD: " + std::to_string(worldRenderer->getRenderDistance()) + " | " +
+            direction + " | " +
+            "FPS: " + std::to_string(static_cast<int>(1.0f / deltaTime));
+
+        SDL_SetWindowTitle(window, title.c_str());
+        titleUpdateTimer = 0.0f;
+    }
 }
 
 void VoxelWorld::toggleWireframe()
@@ -186,6 +201,20 @@ void VoxelWorld::handleWindowResize(uint32_t newWidth, uint32_t newHeight)
     renderer->handleResize(newWidth, newHeight);
 
     std::cout << "[DEBUG] Window resize handled successfully" << std::endl;
+}
+
+void VoxelWorld::increaseRenderDistance()
+{
+    renderDistance = std::min(renderDistance + 1, 20);  // Max 20 chunks
+    worldRenderer->setRenderDistance(renderDistance);
+    std::cout << "Render distance increased to: " << renderDistance << std::endl;
+}
+
+void VoxelWorld::decreaseRenderDistance()
+{
+    renderDistance = std::max(renderDistance - 1, 2);   // Min 2 chunks
+    worldRenderer->setRenderDistance(renderDistance);
+    std::cout << "Render distance decreased to: " << renderDistance << std::endl;
 }
 
 void VoxelWorld::cleanup()

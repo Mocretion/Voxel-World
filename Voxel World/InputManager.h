@@ -16,6 +16,10 @@ public:
     void setToggleMouseCaptureCallback(std::function<void()> callback);
     void setWindowResizeCallback(std::function<void(uint32_t, uint32_t)> callback);
 
+    // NEW: Callbacks for render distance control
+    void setIncreaseRenderDistanceCallback(std::function<void()> callback);
+    void setDecreaseRenderDistanceCallback(std::function<void()> callback);
+
     // Mouse capture state
     bool isMouseCaptured() const { return mouseCaptured; }
     void setMouseCaptured(bool captured);
@@ -30,6 +34,10 @@ private:
     std::function<void()> onToggleWireframe;
     std::function<void()> onToggleMouseCapture;
     std::function<void(uint32_t, uint32_t)> onWindowResize;
+
+    // NEW: Render distance callbacks
+    std::function<void()> onIncreaseRenderDistance;
+    std::function<void()> onDecreaseRenderDistance;
 
     void handleKeyPress(SDL_Keycode key);
     void handleMouseMotion(const SDL_MouseMotionEvent& motion, Camera& camera);

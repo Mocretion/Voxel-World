@@ -73,6 +73,16 @@ void InputManager::setWindowResizeCallback(std::function<void(uint32_t, uint32_t
     std::cout << "[DEBUG] Window resize callback set successfully" << std::endl;
 }
 
+void InputManager::setIncreaseRenderDistanceCallback(std::function<void()> callback)
+{
+    onIncreaseRenderDistance = callback;
+}
+
+void InputManager::setDecreaseRenderDistanceCallback(std::function<void()> callback)
+{
+    onDecreaseRenderDistance = callback;
+}
+
 void InputManager::setMouseCaptured(bool captured)
 {
     std::cout << "[DEBUG] Setting mouse captured: " << (captured ? "true" : "false") << std::endl;
@@ -117,6 +127,41 @@ void InputManager::handleKeyPress(SDL_Keycode key)
 
     case SDLK_F11:
         std::cout << "[DEBUG] F11 key pressed" << std::endl;
+        break;
+        
+    // NEW: Render distance controls
+    case SDLK_EQUALS:  // + key (without shift)
+    case SDLK_PLUS:    // + key (with shift)
+        std::cout << "[DEBUG] Plus key pressed - increasing render distance" << std::endl;
+        if (onIncreaseRenderDistance)
+        {
+            onIncreaseRenderDistance();
+        }
+        break;
+        
+    case SDLK_MINUS:   // - key
+        std::cout << "[DEBUG] Minus key pressed - decreasing render distance" << std::endl;
+        if (onDecreaseRenderDistance)
+        {
+            onDecreaseRenderDistance();
+        }
+        break;
+        
+    // NEW: Alternative controls using arrow keys
+    case SDLK_UP:
+        std::cout << "[DEBUG] Up arrow - increasing render distance" << std::endl;
+        if (onIncreaseRenderDistance)
+        {
+            onIncreaseRenderDistance();
+        }
+        break;
+        
+    case SDLK_DOWN:
+        std::cout << "[DEBUG] Down arrow - decreasing render distance" << std::endl;
+        if (onDecreaseRenderDistance)
+        {
+            onDecreaseRenderDistance();
+        }
         break;
     }
 }

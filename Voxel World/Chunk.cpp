@@ -2,6 +2,7 @@
 #include <random>
 #include <algorithm>
 #include <iostream>
+#include <chrono>
 
 // Define the cube size (1.0f means each cube is 1 unit)
 const float Chunk::CUBE_SIZE = 1.0f;
@@ -491,84 +492,6 @@ void Chunk::addCube(float worldX, float worldY, float worldZ, glm::vec3 color)
     indices.insert(indices.end(), cubeIndices.begin(), cubeIndices.end());
 }
 
-ChunkManager::ChunkManager() : noiseGenerator(12345)  // Use a fixed seed for consistent terrain
-{
-    // You can change the seed to get different terrain
-}
-
-// ChunkManager Implementation
-void ChunkManager::generateTerrain(int chunksX, int chunksZ)
-{
-    chunks.clear();  // Clear any existing chunks
-
-    // Generate chunks in a grid pattern
-    // Center the grid around origin (like generating from -chunksX/2 to +chunksX/2)
-    int startX = -chunksX / 2;
-    int startZ = -chunksZ / 2;
-
-    for (int x = 0; x < chunksX; x++)
-    {
-        for (int z = 0; z < chunksZ; z++)
-        {
-            int chunkX = startX + x;
-            int chunkZ = startZ + z;
-
-            // Create and add new chunk to our list
-            chunks.emplace_back(chunkX, chunkZ, &noiseGenerator);
-        }
-    }
-}
-
-std::vector<Vertex> ChunkManager::getAllVertices() const
-{
-    std::vector<Vertex> allVertices;
-
-    // Combine vertices from all chunks
-    for (const auto& chunk : chunks)
-    {
-        const auto& chunkVertices = chunk.getVertices();
-        allVertices.insert(allVertices.end(), chunkVertices.begin(), chunkVertices.end());
-    }
-
-    return allVertices;
-}
-
-std::vector<uint32_t> ChunkManager::getAllIndices() const
-{
-    std::vector<uint32_t> allIndices;
-    uint32_t vertexOffset = 0;
-
-    // Combine indices from all chunks, adjusting for vertex offset
-    for (const auto& chunk : chunks)
-    {
-        const auto& chunkIndices = chunk.getIndices();
-
-        // Add indices with offset to account for previous chunks' vertices
-        for (uint32_t index : chunkIndices)
-        {
-            allIndices.push_back(index + vertexOffset);
-        }
-
-        // Update offset for next chunk
-        vertexOffset += static_cast<uint32_t>(chunk.getVertices().size());
-    }
-
-    return allIndices;
-}
-
-Chunk* ChunkManager::getChunk(int chunkX, int chunkZ)
-{
-    // Find chunk with matching coordinates
-    for (auto& chunk : chunks)
-    {
-        if (chunk.getChunkX() == chunkX && chunk.getChunkZ() == chunkZ)
-        {
-            return &chunk;  // Return pointer to the chunk
-        }
-    }
-    return nullptr;  // Not found (like returning null in C#)
-}
-
 void Chunk::localToWorld(int localX, int localY, int localZ, int& worldX, int& worldY, int& worldZ) const
 {
     worldX = chunkX * CHUNK_SIZE + localX;
@@ -907,6 +830,246 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
 
 // NEW: ChunkManager methods for cross-chunk support
 
+ChunkManager::ChunkManager() : noiseGenerator(12345)
+{
+    // Use a fixed seed for consistent terrain
+}
+
+uint64_t ChunkManager::chunkCoordsToKey(int chunkX, int chunkZ) const
+{
+    // Combine two 32-bit integers into one 64-bit key
+    uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(chunkX)) << 32) |
+        static_cast<uint64_t>(static_cast<uint32_t>(chunkZ));
+    return key;
+}
+
+// OPTIMIZED: Only generate chunk, don't regenerate all meshes
+void ChunkManager::generateSingleChunk(int chunkX, int chunkZ)
+{
+    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+
+    // Check if chunk already exists
+    if (chunks.find(key) != chunks.end())
+    {
+        return; // Chunk already exists, don't create duplicate
+    }
+
+    // Create new chunk and add it to our map
+    chunks.emplace(key, Chunk(chunkX, chunkZ, &noiseGenerator));
+
+    // Mark this chunk and its neighbors as needing mesh updates
+    markChunkAndNeighborsDirty(chunkX, chunkZ);
+}
+
+// OPTIMIZED: Track which chunks were removed and mark neighbors dirty
+int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDistance)
+{
+    std::vector<uint64_t> chunksToRemove;
+    std::vector<std::pair<int, int>> removedPositions;
+
+    // Find chunks to remove
+    for (const auto& pair : chunks)
+    {
+        const Chunk& chunk = pair.second;
+
+        int deltaX = chunk.getChunkX() - centerX;
+        int deltaZ = chunk.getChunkZ() - centerZ;
+        int distance = std::max(std::abs(deltaX), std::abs(deltaZ));
+
+        if (distance > maxDistance)
+        {
+            chunksToRemove.push_back(pair.first);
+            removedPositions.emplace_back(chunk.getChunkX(), chunk.getChunkZ());
+        }
+    }
+
+    // Remove the distant chunks
+    for (uint64_t key : chunksToRemove)
+    {
+        auto it = chunks.find(key);
+        if (it != chunks.end())
+        {
+            std::cout << "Removing distant chunk at ("
+                << it->second.getChunkX() << ", "
+                << it->second.getChunkZ() << ")" << std::endl;
+
+            // Remove from dirty set if it was there
+            dirtyChunks.erase(key);
+            chunks.erase(it);
+        }
+    }
+
+    // Mark neighbors of removed chunks as dirty (they might need AO updates)
+    for (const auto& pos : removedPositions)
+    {
+        for (const auto& neighbor : getNeighborCoordinates(pos.first, pos.second))
+        {
+            uint64_t neighborKey = chunkCoordsToKey(neighbor.first, neighbor.second);
+            if (chunks.find(neighborKey) != chunks.end())
+            {
+                dirtyChunks.insert(neighborKey);
+            }
+        }
+    }
+
+    return static_cast<int>(chunksToRemove.size());
+}
+
+// NEW: Get neighboring chunk coordinates
+std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX, int chunkZ) const
+{
+    return {
+        {chunkX - 1, chunkZ - 1}, {chunkX, chunkZ - 1}, {chunkX + 1, chunkZ - 1},
+        {chunkX - 1, chunkZ},                           {chunkX + 1, chunkZ},
+        {chunkX - 1, chunkZ + 1}, {chunkX, chunkZ + 1}, {chunkX + 1, chunkZ + 1}
+    };
+}
+
+// NEW: Mark chunk and neighbors as needing mesh updates
+void ChunkManager::markChunkAndNeighborsDirty(int chunkX, int chunkZ)
+{
+    // Mark the chunk itself
+    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+    dirtyChunks.insert(key);
+
+    // Mark all neighboring chunks (they need AO updates due to new chunk)
+    for (const auto& neighbor : getNeighborCoordinates(chunkX, chunkZ))
+    {
+        uint64_t neighborKey = chunkCoordsToKey(neighbor.first, neighbor.second);
+        if (chunks.find(neighborKey) != chunks.end())
+        {
+            dirtyChunks.insert(neighborKey);
+        }
+    }
+}
+
+// OPTIMIZED: Only update meshes that need it
+void ChunkManager::updateMeshes()
+{
+    if (dirtyChunks.empty())
+    {
+        return; // Nothing to update
+    }
+
+    std::cout << "Updating meshes for " << dirtyChunks.size() << " chunks..." << std::endl;
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    // Update only dirty chunks
+    for (uint64_t key : dirtyChunks)
+    {
+        auto it = chunks.find(key);
+        if (it != chunks.end())
+        {
+            it->second.generateMeshWithManager(this);
+        }
+    }
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+    std::cout << "Mesh update completed in " << duration.count() << "ms for "
+        << dirtyChunks.size() << " chunks" << std::endl;
+
+    // Clear dirty chunks
+    dirtyChunks.clear();
+}
+
+// NEW: Get count of chunks needing mesh updates
+int ChunkManager::getChunksNeedingMeshUpdate() const
+{
+    return static_cast<int>(dirtyChunks.size());
+}
+
+// UPDATED: Use the new optimized system
+void ChunkManager::generateTerrain(int chunksX, int chunksZ)
+{
+    chunks.clear();
+    dirtyChunks.clear();
+
+    // Generate chunks in a grid pattern around origin
+    int startX = -chunksX / 2;
+    int startZ = -chunksZ / 2;
+
+    // First pass: Create all chunks without mesh generation
+    for (int x = 0; x < chunksX; x++)
+    {
+        for (int z = 0; z < chunksZ; z++)
+        {
+            int chunkX = startX + x;
+            int chunkZ = startZ + z;
+
+            uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+            chunks.emplace(key, Chunk(chunkX, chunkZ, &noiseGenerator));
+            dirtyChunks.insert(key);
+        }
+    }
+
+    // Second pass: Generate all meshes at once
+    updateMeshes();
+}
+
+// Keep these methods the same as before:
+std::vector<Vertex> ChunkManager::getAllVertices() const
+{
+    std::vector<Vertex> allVertices;
+
+    for (const auto& pair : chunks)
+    {
+        const Chunk& chunk = pair.second;
+        const auto& chunkVertices = chunk.getVertices();
+        allVertices.insert(allVertices.end(), chunkVertices.begin(), chunkVertices.end());
+    }
+
+    return allVertices;
+}
+
+std::vector<uint32_t> ChunkManager::getAllIndices() const
+{
+    std::vector<uint32_t> allIndices;
+    uint32_t vertexOffset = 0;
+
+    for (const auto& pair : chunks)
+    {
+        const Chunk& chunk = pair.second;
+        const auto& chunkIndices = chunk.getIndices();
+
+        for (uint32_t index : chunkIndices)
+        {
+            allIndices.push_back(index + vertexOffset);
+        }
+
+        vertexOffset += static_cast<uint32_t>(chunk.getVertices().size());
+    }
+
+    return allIndices;
+}
+
+Chunk* ChunkManager::getChunk(int chunkX, int chunkZ)
+{
+    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+    auto it = chunks.find(key);
+
+    if (it != chunks.end())
+    {
+        return &(it->second);
+    }
+
+    return nullptr;
+}
+
+std::vector<std::pair<int, int>> ChunkManager::getLoadedChunkCoordinates() const
+{
+    std::vector<std::pair<int, int>> coordinates;
+
+    for (const auto& pair : chunks)
+    {
+        const Chunk& chunk = pair.second;
+        coordinates.emplace_back(chunk.getChunkX(), chunk.getChunkZ());
+    }
+
+    return coordinates;
+}
+
 void ChunkManager::worldToChunkAndLocal(int worldX, int worldY, int worldZ, int& chunkX, int& chunkZ, int& localX, int& localY, int& localZ) const
 {
     // Calculate which chunk these world coordinates belong to
@@ -939,13 +1102,4 @@ bool ChunkManager::hasCubeAtWorld(int worldX, int worldY, int worldZ) const
 
     // Check if cube exists in that chunk
     return chunk->hasCubeAt(localX, localY, localZ);
-}
-
-void ChunkManager::regenerateAllMeshes()
-{
-    // Regenerate all chunk meshes with cross-chunk AO support
-    for (auto& chunk : chunks)
-    {
-        chunk.generateMeshWithManager(this);
-    }
 }
