@@ -42,14 +42,14 @@ void WorldRenderer::updateWorld(const Camera& camera)
     if (chunksNeedingGeneration > 0)
     {
         std::cout << "Creating chunk data for chunks...: " << chunksNeedingGeneration << std::endl;
-        chunkManager.generateChunks(5);
+        chunkManager.generateChunks(CHUNK_GEN_PER_FRAME);
     }
 
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
     if (chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
     {
         std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << std::endl;
-        chunkManager.updateMeshes(1);
+        chunkManager.updateMeshes(CHUNK_MESH_UPDATE_PER_FRAME);
         worldDataDirty = true;
     }
 

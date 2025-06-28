@@ -31,6 +31,9 @@ public:
     //int getPendingMeshJobs() const { return chunkManager.getPendingMeshJobs(); }
 
 private:
+	const int CHUNK_GEN_PER_FRAME = 5;  // How many chunks to generate per frame
+	const int CHUNK_MESH_UPDATE_PER_FRAME = 1;  // How many chunks to update meshes per frame
+
     VulkanRenderer* vulkanRenderer;
     ChunkManager chunkManager;
 
