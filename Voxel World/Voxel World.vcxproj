@@ -150,6 +150,7 @@
     <ClInclude Include="HUD.h" />
     <ClInclude Include="InputManager.h" />
     <ClInclude Include="PerlinNoise.h" />
+    <ClInclude Include="RemovableQueue.h" />
     <ClInclude Include="ResourceManager.h" />
     <ClInclude Include="Vertex.h" />
     <ClInclude Include="VoxelWorld.h" />

@@ -227,6 +227,7 @@ void Chunk::generateMeshWithManager(ChunkManager* manager)
 
                     // Generate faces with cross-chunk ambient occlusion
                     addCubeWithCullingAndAOCrossChunk(worldX, worldY, worldZ, color, x, y, z, manager);
+					setMeshGenerated(true);
                 }
             }
         }
@@ -527,7 +528,7 @@ uint64_t ChunkManager::chunkCoordsToKey(int chunkX, int chunkZ) const
 }
 
 // OPTIMIZED: Only generate chunk, don't regenerate all meshes
-void ChunkManager::generateSingleChunk(int chunkX, int chunkZ, bool markDirty)
+int ChunkManager::generateSingleChunk(int chunkX, int chunkZ, bool markDirty)
 {
     uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
 
@@ -539,7 +540,7 @@ void ChunkManager::generateSingleChunk(int chunkX, int chunkZ, bool markDirty)
             markChunkDirty(chunkX, chunkZ);
         }
 
-        return; // Chunk already exists, don't create duplicate
+        return 0; // Chunk already exists, don't create duplicate
     }
 
     // Create new chunk and add it to our map
@@ -550,6 +551,8 @@ void ChunkManager::generateSingleChunk(int chunkX, int chunkZ, bool markDirty)
     {
         markChunkDirty(chunkX, chunkZ);
     }
+
+    return 1;
 }
 
 // OPTIMIZED: Track which chunks were removed and mark neighbors dirty
@@ -588,7 +591,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDista
                 << it->second.getChunkZ() << ")" << std::endl;
                 */
             // Remove from dirty set if it was there
-            chunksToDraw.erase(key);
+            chunksToDraw.remove(key);
             chunks.erase(it);
         }
     }
@@ -603,7 +606,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDista
                 << it->second.getChunkZ() << ")" << std::endl;
             */
             // Remove from dirty set if it was there
-            chunksToDraw.erase(key);
+            chunksToDraw.remove(key);
             it->second.clearMesh();
         }
     }
@@ -621,16 +624,16 @@ std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX
     };
 }
 
-// Mark chunk and neighbors as needing mesh updates
+// Mark chunk as needing mesh updates
 void ChunkManager::markChunkDirty(int chunkX, int chunkZ)
 {
     // Mark the chunk itself
     uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-    chunksToDraw.insert(key);
+    chunksToDraw.push(key);
 }
 
 // OPTIMIZED: Only update meshes that need it
-void ChunkManager::updateMeshes()
+void ChunkManager::updateMeshes(int maxUpdates)
 {
 	std::cout << "[DEBUG] Need to render mesh of this many chunks: " << chunksToDraw.size() << std::endl;
 
@@ -643,23 +646,26 @@ void ChunkManager::updateMeshes()
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Update only dirty chunks
-    for (uint64_t key : chunksToDraw)
+    int updates = 0;
+    while(updates < maxUpdates && !chunksToDraw.empty())
     {
-        auto it = chunks.find(key);
-        if (it != chunks.end())
+        uint64_t chunkKey = chunksToDraw.front();
+        chunksToDraw.pop();
+
+        auto chunkIt = chunks.find(chunkKey);
+
+        if (chunkIt != chunks.end())
         {
-            it->second.generateMeshWithManager(this);
+            chunkIt->second.generateMeshWithManager(this);
+            updates++;
         }
-    }
+	}
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
     std::cout << "Mesh update completed in " << duration.count() << "ms for "
         << chunksToDraw.size() << " chunks" << std::endl;
-
-    // Clear dirty chunks
-    chunksToDraw.clear();
 }
 
 // Get count of chunks needing mesh updates

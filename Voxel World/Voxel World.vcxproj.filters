@@ -28,6 +28,12 @@
     <Filter Include="Source Files\renderer\vulkan">
       <UniqueIdentifier>{8d001f62-043a-489a-bed8-f72356eaf7e6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\helper">
+      <UniqueIdentifier>{5b8fd107-6e7a-48d7-9fa0-fbf98621f0a5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\helper\data">
+      <UniqueIdentifier>{f8235cfc-e228-4ce8-a3a8-c8307154eee5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />
@@ -102,6 +108,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ResourceManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RemovableQueue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

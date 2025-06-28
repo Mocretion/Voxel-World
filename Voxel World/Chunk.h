@@ -7,6 +7,7 @@
 #include <utility>
 #include "Vertex.h"
 #include "PerlinNoise.h"
+#include "RemovableQueue.h"
 
 // Forward declaration for circular dependency
 class ChunkManager;
@@ -50,7 +51,7 @@ public:
 
 	// Mesh state tracking
 	bool isMeshGenerated() const { return meshGenerated; }
-	void markMeshAsDirty() { meshGenerated = false; }
+	void setMeshGenerated(bool isGenerated) { meshGenerated = isGenerated; }
 
 private:
 	int chunkX, chunkZ;  // Chunk coordinates in the world
@@ -93,17 +94,14 @@ class ChunkManager {
 public:
 	ChunkManager();
 
-	// OLD: Generate a floor of chunks around the origin (still available for testing)
-	void generateTerrain(int chunksX, int chunksZ);
-
 	// Generate a single chunk at specific coordinates
-	void generateSingleChunk(int chunkX, int chunkZ, bool markDirty);
+	int generateSingleChunk(int chunkX, int chunkZ, bool markDirty);
 
 	// Remove chunks that are too far from the given center point
 	int removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance);
 
 	// OPTIMIZED: Only regenerate meshes that need updates
-	void updateMeshes();
+	void updateMeshes(int maxUpdates);
 
 	// Mark a chunk for mesh regeneration
 	void markChunkDirty(int chunkX, int chunkZ);
@@ -136,7 +134,7 @@ private:
 	std::unordered_map<uint64_t, Chunk> chunks;
 
 	// Track which chunks need mesh updates
-	std::unordered_set<uint64_t> chunksToDraw;
+	RemovableQueue<uint64_t> chunksToDraw;
 
 	PerlinNoise noiseGenerator;
 

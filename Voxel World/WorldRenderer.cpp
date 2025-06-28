@@ -33,31 +33,16 @@ void WorldRenderer::updateWorld(const Camera& camera)
         auto chunkTime = std::chrono::high_resolution_clock::now();
         auto chunkDuration = std::chrono::duration_cast<std::chrono::milliseconds>(chunkTime - startTime);
 
-        // OPTIMIZED: Only update meshes that need updating
-        std::cout << "Updating meshes for chunks that need it..." << std::endl;
-        chunkManager.updateMeshes();
-
-        auto meshTime = std::chrono::high_resolution_clock::now();
-        auto meshDuration = std::chrono::duration_cast<std::chrono::milliseconds>(meshTime - chunkTime);
-
         // Mark mesh data as dirty so it gets uploaded to GPU
-        worldDataDirty = true;
         lastUpdateChunk = playerChunk;
-
-        auto totalTime = std::chrono::high_resolution_clock::now();
-        auto totalDuration = std::chrono::duration_cast<std::chrono::milliseconds>(totalTime - startTime);
-
-        std::cout << "World update complete in " << totalDuration.count() << "ms "
-            << "(chunks: " << chunkDuration.count() << "ms, meshes: " << meshDuration.count() << "ms). "
-            << "Loaded chunks: " << getLoadedChunkCount() << std::endl;
     }
 
     // OPTIMIZED: Check if any chunks still need mesh updates (this can happen incrementally)
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
     if (chunksNeedingUpdate > 0)
     {
-        std::cout << "Updating " << chunksNeedingUpdate << " additional chunks..." << std::endl;
-        chunkManager.updateMeshes();
+        std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << std::endl;
+        chunkManager.updateMeshes(1);
         worldDataDirty = true;
     }
 
@@ -82,6 +67,7 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 {
     // Generate chunks in a square around the player
     int chunksGenerated = 0;
+    int markedDirty = 0;
 
     for (int x = playerChunk.x - renderDistance - ADD_CALCULATION_DISTANCE; x <= playerChunk.x + renderDistance + ADD_CALCULATION_DISTANCE; x++)
     {
@@ -89,7 +75,7 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
         {
             Chunk* chunk = chunkManager.getChunk(x, z);
 
-            // Check if this chunk already exists
+            // Check if this chunk does not already exists
             if (chunk == nullptr || !chunk->isMeshGenerated())
             {
 				// Render only chunks within the render distance but NOT calculation distance
@@ -99,8 +85,8 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 
 				std::cout << "[DEBUG] Dirty: " << markDirty << ", at: " << x << " " << z << ". Center: " << playerChunk.x << " " << playerChunk.y << std::endl;
 
-                chunkManager.generateSingleChunk(x, z, markDirty);
-                chunksGenerated++;
+                chunksGenerated += chunkManager.generateSingleChunk(x, z, markDirty);
+                markedDirty += markDirty;
             }
         }
     }
@@ -108,6 +94,7 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
     if (chunksGenerated > 0)
     {
         std::cout << "Generated " << chunksGenerated << " new chunks" << std::endl;
+        std::cout << "Marked " << markedDirty << " chunks for mesh generation" << std::endl;
     }
 }
 
