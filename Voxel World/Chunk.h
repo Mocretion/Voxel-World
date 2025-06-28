@@ -95,16 +95,16 @@ public:
 	ChunkManager();
 
 	// Generate a single chunk at specific coordinates
-	int generateSingleChunk(int chunkX, int chunkZ, bool markDirty);
+	int generateChunks(int maxUpdates);
+
+	// Add chunks to the generation queue. Also to MeshGeneration if markDirty
+	int markChunkForGeneration(int chunkX, int chunkZ, bool markDirty);
 
 	// Remove chunks that are too far from the given center point
 	int removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance);
 
 	// OPTIMIZED: Only regenerate meshes that need updates
 	void updateMeshes(int maxUpdates);
-
-	// Mark a chunk for mesh regeneration
-	void markChunkDirty(int chunkX, int chunkZ);
 
 	// Get all vertices from all chunks (for rendering)
 	std::vector<Vertex> getAllVertices() const;
@@ -127,11 +127,16 @@ public:
 	// Performance tracking
 	int getChunksNeedingMeshUpdate() const;
 
+	int getChunksNeedingGeneration() const;
+
 private:
 	// Use a hash map instead of vector for efficient chunk lookup
 	// Key: pair<chunkX, chunkZ>, Value: Chunk object
 	// This is like Dictionary<(int, int), Chunk> in C#
 	std::unordered_map<uint64_t, Chunk> chunks;
+
+	// Track which chunks need to be generated
+	RemovableQueue<uint64_t> chunksToGenerate;
 
 	// Track which chunks need mesh updates
 	RemovableQueue<uint64_t> chunksToDraw;
@@ -140,6 +145,8 @@ private:
 
 	// Helper to convert chunk coordinates to hash key
 	uint64_t chunkCoordsToKey(int chunkX, int chunkZ) const;
+
+	std::pair<int, int> keyToChunkCoords(uint64_t key) const;
 
 	// Helper to convert world coordinates to chunk coordinates and local coordinates
 	void worldToChunkAndLocal(int worldX, int worldY, int worldZ, int& chunkX, int& chunkZ, int& localX, int& localY, int& localZ) const;

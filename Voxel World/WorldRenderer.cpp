@@ -38,8 +38,15 @@ void WorldRenderer::updateWorld(const Camera& camera)
     }
 
     // OPTIMIZED: Check if any chunks still need mesh updates (this can happen incrementally)
+    int chunksNeedingGeneration = chunkManager.getChunksNeedingGeneration();
+    if (chunksNeedingGeneration > 0)
+    {
+        std::cout << "Creating chunk data for chunks...: " << chunksNeedingGeneration << std::endl;
+        chunkManager.generateChunks(5);
+    }
+
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
-    if (chunksNeedingUpdate > 0)
+    if (chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
     {
         std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << std::endl;
         chunkManager.updateMeshes(1);
@@ -85,7 +92,7 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 
 				std::cout << "[DEBUG] Dirty: " << markDirty << ", at: " << x << " " << z << ". Center: " << playerChunk.x << " " << playerChunk.y << std::endl;
 
-                chunksGenerated += chunkManager.generateSingleChunk(x, z, markDirty);
+                chunksGenerated += chunkManager.markChunkForGeneration(x, z, markDirty);
                 markedDirty += markDirty;
             }
         }

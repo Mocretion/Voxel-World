@@ -527,32 +527,53 @@ uint64_t ChunkManager::chunkCoordsToKey(int chunkX, int chunkZ) const
     return key;
 }
 
-// OPTIMIZED: Only generate chunk, don't regenerate all meshes
-int ChunkManager::generateSingleChunk(int chunkX, int chunkZ, bool markDirty)
+std::pair<int, int> ChunkManager::keyToChunkCoords(uint64_t key) const
+{
+    // Extract the upper 32 bits for chunkX
+    int chunkX = static_cast<int>(static_cast<uint32_t>(key >> 32));
+
+    // Extract the lower 32 bits for chunkZ
+    int chunkZ = static_cast<int>(static_cast<uint32_t>(key & 0xFFFFFFFF));
+
+    return std::make_pair(chunkX, chunkZ);
+}
+
+int ChunkManager::markChunkForGeneration(int chunkX, int chunkZ, bool markDirty)
 {
     uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
 
-    // Check if chunk already exists
-    if (chunks.find(key) != chunks.end())
+    if (markDirty && !chunksToDraw.contains(key))
     {
-        if (markDirty)
-        {
-            markChunkDirty(chunkX, chunkZ);
-        }
-
-        return 0; // Chunk already exists, don't create duplicate
+        chunksToDraw.push(key);
     }
 
-    // Create new chunk and add it to our map
-    chunks.emplace(key, Chunk(chunkX, chunkZ, &noiseGenerator));
-
-    // Mark this chunk and its neighbors as needing mesh updates
-    if (markDirty)
+	// If chunk doesn't exist, and if is is not already in the queue: add it to the queue for generation
+    if(chunks.find(key) == chunks.end() && !chunksToGenerate.contains(key))
     {
-        markChunkDirty(chunkX, chunkZ);
+        chunksToGenerate.push(key);
+        return 1;
+	}    
+
+    return 0;
+}
+
+int ChunkManager::generateChunks(int maxUpdates)
+{
+
+    int updates = 0;
+    while (updates < maxUpdates && !chunksToGenerate.empty())
+    {
+        uint64_t chunkKey = chunksToGenerate.front();
+        chunksToGenerate.pop();
+
+        auto coords = keyToChunkCoords(chunkKey);
+
+        chunks.emplace(chunkKey, Chunk(coords.first, coords.second, &noiseGenerator));
+
+        updates++;
     }
 
-    return 1;
+    return updates;
 }
 
 // OPTIMIZED: Track which chunks were removed and mark neighbors dirty
@@ -624,14 +645,6 @@ std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX
     };
 }
 
-// Mark chunk as needing mesh updates
-void ChunkManager::markChunkDirty(int chunkX, int chunkZ)
-{
-    // Mark the chunk itself
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-    chunksToDraw.push(key);
-}
-
 // OPTIMIZED: Only update meshes that need it
 void ChunkManager::updateMeshes(int maxUpdates)
 {
@@ -672,6 +685,11 @@ void ChunkManager::updateMeshes(int maxUpdates)
 int ChunkManager::getChunksNeedingMeshUpdate() const
 {
     return static_cast<int>(chunksToDraw.size());
+}
+
+int ChunkManager::getChunksNeedingGeneration() const
+{
+    return static_cast<int>(chunksToGenerate.size());
 }
 
 // Keep these methods the same as before:
