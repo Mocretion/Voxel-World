@@ -168,12 +168,12 @@ private:
 	std::jthread generationWorker;
 	// Add a chunk to the generation queue.
 	bool markChunkForGeneration(int chunkX, int chunkZ);
-	std::atomic<bool> isDoneGenerating{ false };
+	std::atomic<bool> isDoneGenerating{ true };
 
 	std::jthread meshWorker;
 	// Add a chunk to the meshing queue.
 	bool markChunkForMeshing(int chunkX, int chunkZ);
-	std::atomic<bool> isDoneMeshing{ false };
+	std::atomic<bool> isDoneMeshing{ true };
 
 	// Helper to convert chunk coordinates to hash key
 	uint64_t chunkCoordsToKey(int chunkX, int chunkZ) const;

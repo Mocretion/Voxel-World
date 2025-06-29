@@ -39,14 +39,14 @@ void WorldRenderer::updateWorld(const Camera& camera)
 
     // OPTIMIZED: Check if any chunks still need mesh updates (this can happen incrementally)
     int chunksNeedingGeneration = chunkManager.getChunksNeedingGeneration();
-    if (chunksNeedingGeneration > 0)
+    if (chunkManager.getIsDoneGenerating() && chunksNeedingGeneration > 0)
     {
         std::cout << "Creating chunk data for chunks...: " << chunksNeedingGeneration << std::endl;
         chunkManager.generateChunks(CHUNK_GEN_PER_FRAME);
     }
 
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
-    if (chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
+    if (chunkManager.getIsDoneMeshing() && chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
     {
         chunkManager.usedNewGenerationValue = true;
         std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << std::endl;
