@@ -46,18 +46,17 @@ void WorldRenderer::updateWorld(const Camera& camera)
     }
 
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
-    if (chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
+    if (chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
     {
+        chunkManager.usedNewGenerationValue = true;
         std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << std::endl;
         chunkManager.updateMeshes(CHUNK_MESH_UPDATE_PER_FRAME);
-        worldDataDirty = true;
     }
 
-    // Update mesh data on GPU if needed
-    if (worldDataDirty)
+    if (chunkManager.getIsDoneMeshing() && !chunkManager.usedNewMeshingValue)
     {
+        chunkManager.usedNewMeshingValue = true;
         updateMeshData();
-        worldDataDirty = false;
     }
 }
 
@@ -73,8 +72,9 @@ glm::ivec2 WorldRenderer::worldPositionToChunk(const glm::vec3& worldPos) const
 void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 {
     // Generate chunks in a square around the player
-    int chunksGenerated = 0;
-    int markedDirty = 0;
+
+	std::vector<std::pair<int, int>> chunksToGenerate;
+	std::vector<std::pair<int, int>> chunksToMesh;
 
     for (int x = playerChunk.x - renderDistance - ADD_CALCULATION_DISTANCE; x <= playerChunk.x + renderDistance + ADD_CALCULATION_DISTANCE; x++)
     {
@@ -82,26 +82,32 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
         {
             Chunk* chunk = chunkManager.getChunk(x, z);
 
+            bool inMeshingRange =
+                x >= playerChunk.x - renderDistance && x <= playerChunk.x + renderDistance &&
+                z >= playerChunk.y - renderDistance && z <= playerChunk.y + renderDistance;
+
             // Check if this chunk does not already exists
-            if (chunk == nullptr || !chunk->isMeshGenerated())
+            if (chunk == nullptr)
             {
 				// Render only chunks within the render distance but NOT calculation distance
-                bool markDirty =
-                    x >= playerChunk.x - renderDistance && x <= playerChunk.x + renderDistance &&
-                    z >= playerChunk.y - renderDistance && z <= playerChunk.y + renderDistance;
+                chunksToGenerate.emplace_back(x, z);
+            }
 
-				std::cout << "[DEBUG] Dirty: " << markDirty << ", at: " << x << " " << z << ". Center: " << playerChunk.x << " " << playerChunk.y << std::endl;
-
-                chunksGenerated += chunkManager.markChunkForGeneration(x, z, markDirty);
-                markedDirty += markDirty;
+            if ((chunk == nullptr || !chunk->isMeshGenerated()) && inMeshingRange)  // Chunk also needs meshing
+            {
+                chunksToMesh.emplace_back(x, z);
             }
         }
     }
 
-    if (chunksGenerated > 0)
+    if (!chunksToGenerate.empty())
     {
-        std::cout << "Generated " << chunksGenerated << " new chunks" << std::endl;
-        std::cout << "Marked " << markedDirty << " chunks for mesh generation" << std::endl;
+		chunkManager.markChunksForGeneration(chunksToGenerate);
+    }
+
+    if (!chunksToMesh.empty())
+    {
+        chunkManager.markChunksForMeshing(chunksToMesh);
     }
 }
 

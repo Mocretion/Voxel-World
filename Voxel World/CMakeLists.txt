@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(VoxelWorld)  # Changed from VulkanApp to VoxelWorld
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_TOOLCHAIN_FILE "D:/VS C# Projects/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
+find_package(OpenMP REQUIRED)
 
 # Find Vulkan
 find_package(Vulkan REQUIRED)
@@ -26,6 +28,16 @@ add_executable(${PROJECT_NAME}
     "WorldRenderer.cpp"
     # Add any other .cpp files here as you create them
 )
+
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /openmp)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(${PROJECT_NAME} PRIVATE -fopenmp)
+    target_link_libraries(${PROJECT_NAME} -fopenmp)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(${PROJECT_NAME} PRIVATE -fopenmp)
+    target_link_libraries(${PROJECT_NAME} -fopenmp)
+endif()
 
 # Link libraries (vcpkg style)
 target_link_libraries(${PROJECT_NAME} 

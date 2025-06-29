@@ -8,6 +8,7 @@
 #include "Vertex.h"
 #include "PerlinNoise.h"
 #include "RemovableQueue.h"
+#include <mutex>
 
 // Forward declaration for circular dependency
 class ChunkManager;
@@ -95,10 +96,13 @@ public:
 	ChunkManager();
 
 	// Generate a single chunk at specific coordinates
-	int generateChunks(int maxUpdates);
+	void generateChunks(int maxUpdates);
 
-	// Add chunks to the generation queue. Also to MeshGeneration if markDirty
-	int markChunkForGeneration(int chunkX, int chunkZ, bool markDirty);
+	// Add chunks to the generation queue.
+	void markChunksForGeneration(std::vector<std::pair<int, int>> chunks);
+
+	// Add chunks to the meshing queue.
+	void markChunksForMeshing(std::vector<std::pair<int, int>> chunks);
 
 	// Remove chunks that are too far from the given center point
 	int removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance);
@@ -125,9 +129,25 @@ public:
 	std::vector<std::pair<int, int>> getLoadedChunkCoordinates() const;
 
 	// Performance tracking
-	int getChunksNeedingMeshUpdate() const;
 
 	int getChunksNeedingGeneration() const;
+
+	bool getIsDoneGenerating() const
+	{
+		return isDoneGenerating;
+	}
+
+	std::atomic<bool> usedNewGenerationValue{true};
+
+	int getChunksNeedingMeshUpdate() const;
+
+	bool getIsDoneMeshing() const
+	{
+		return isDoneMeshing;
+	}
+
+	std::atomic<bool> usedNewMeshingValue{ true };
+
 
 private:
 	// Use a hash map instead of vector for efficient chunk lookup
@@ -141,7 +161,19 @@ private:
 	// Track which chunks need mesh updates
 	RemovableQueue<uint64_t> chunksToDraw;
 
+	std::mutex genMutex, meshMutex, chunkMutex;
+
 	PerlinNoise noiseGenerator;
+
+	std::jthread generationWorker;
+	// Add a chunk to the generation queue.
+	bool markChunkForGeneration(int chunkX, int chunkZ);
+	std::atomic<bool> isDoneGenerating{ false };
+
+	std::jthread meshWorker;
+	// Add a chunk to the meshing queue.
+	bool markChunkForMeshing(int chunkX, int chunkZ);
+	std::atomic<bool> isDoneMeshing{ false };
 
 	// Helper to convert chunk coordinates to hash key
 	uint64_t chunkCoordsToKey(int chunkX, int chunkZ) const;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <chrono>
+#include <omp.h>
 
 // Define the cube size (1.0f means each cube is 1 unit)
 const float Chunk::CUBE_SIZE = 1.0f;
@@ -538,42 +539,91 @@ std::pair<int, int> ChunkManager::keyToChunkCoords(uint64_t key) const
     return std::make_pair(chunkX, chunkZ);
 }
 
-int ChunkManager::markChunkForGeneration(int chunkX, int chunkZ, bool markDirty)
+void ChunkManager::markChunksForGeneration(std::vector<std::pair<int, int>> chunks)
+{
+    std::unique_lock<std::mutex> lock(genMutex);  // Lock
+    for(const auto& coords : chunks)
+    {
+        int chunkX = coords.first;
+        int chunkZ = coords.second;
+		markChunkForGeneration(chunkX, chunkZ);
+	}
+    lock.unlock();  // Manual unlock
+}
+
+bool ChunkManager::markChunkForGeneration(int chunkX, int chunkZ)
 {
     uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-
-    if (markDirty && !chunksToDraw.contains(key))
-    {
-        chunksToDraw.push(key);
-    }
 
 	// If chunk doesn't exist, and if is is not already in the queue: add it to the queue for generation
     if(chunks.find(key) == chunks.end() && !chunksToGenerate.contains(key))
     {
         chunksToGenerate.push(key);
-        return 1;
+        return true;
 	}    
 
-    return 0;
+    return false;
 }
 
-int ChunkManager::generateChunks(int maxUpdates)
+void ChunkManager::markChunksForMeshing(std::vector<std::pair<int, int>> chunks)
 {
-
-    int updates = 0;
-    while (updates < maxUpdates && !chunksToGenerate.empty())
+    std::unique_lock<std::mutex> lock(meshMutex);  // Lock
+    for (const auto& coords : chunks)
     {
-        uint64_t chunkKey = chunksToGenerate.front();
-        chunksToGenerate.pop();
-
-        auto coords = keyToChunkCoords(chunkKey);
-
-        chunks.emplace(chunkKey, Chunk(coords.first, coords.second, &noiseGenerator));
-
-        updates++;
+        int chunkX = coords.first;
+        int chunkZ = coords.second;
+        markChunkForMeshing(chunkX, chunkZ);
     }
+    lock.unlock();  // Manual unlock
+}
 
-    return updates;
+bool ChunkManager::markChunkForMeshing(int chunkX, int chunkZ)
+{
+    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+
+    if (!chunksToDraw.contains(key))
+    {
+        chunksToDraw.push(key);
+        return true;
+    }
+    
+    return false;
+}
+
+void ChunkManager::generateChunks(int threads)
+{
+	isDoneGenerating = false;
+
+    generationWorker = std::jthread([this]() {
+        bool working = true;
+
+        while (working)
+        {
+            std::unique_lock<std::mutex> mutexLock(genMutex);  // Lock for thread safety
+            if (chunksToGenerate.empty())
+            {
+                working = false;  // No more chunks to generate
+                mutexLock.unlock();  // Unlock before exiting
+            }
+            else
+            {
+                uint64_t chunkKey = chunksToGenerate.front();
+                chunksToGenerate.pop();
+                mutexLock.unlock();  // Unlock before generating
+
+                auto coords = keyToChunkCoords(chunkKey);
+
+                Chunk chunk = Chunk(coords.first, coords.second, &noiseGenerator);
+
+                std::unique_lock<std::mutex> chunkLock(chunkMutex);
+                chunks.emplace(chunkKey, chunk);
+                chunkLock.unlock();
+            }
+        }
+
+        isDoneGenerating = true;
+        usedNewGenerationValue = false;
+    });
 }
 
 // OPTIMIZED: Track which chunks were removed and mark neighbors dirty
@@ -646,39 +696,41 @@ std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX
 }
 
 // OPTIMIZED: Only update meshes that need it
-void ChunkManager::updateMeshes(int maxUpdates)
+void ChunkManager::updateMeshes(int threadId)
 {
-	std::cout << "[DEBUG] Need to render mesh of this many chunks: " << chunksToDraw.size() << std::endl;
+    isDoneMeshing = false;
 
-    if (chunksToDraw.empty())
-    {
-        return; // Nothing to update
-    }
+    meshWorker = std::jthread([this]() {
+        bool working = true;
 
-    std::cout << "Updating meshes for " << chunksToDraw.size() << " chunks..." << std::endl;
-    auto startTime = std::chrono::high_resolution_clock::now();
-
-    // Update only dirty chunks
-    int updates = 0;
-    while(updates < maxUpdates && !chunksToDraw.empty())
-    {
-        uint64_t chunkKey = chunksToDraw.front();
-        chunksToDraw.pop();
-
-        auto chunkIt = chunks.find(chunkKey);
-
-        if (chunkIt != chunks.end())
+        while (working)
         {
-            chunkIt->second.generateMeshWithManager(this);
-            updates++;
+            std::unique_lock<std::mutex> meshLock(meshMutex);  // Lock for thread safety
+            if (chunksToDraw.empty())
+            {
+                working = false;  // No more chunks to generate
+                meshLock.unlock();  // Unlock before exiting
+            }
+            else
+            {
+                uint64_t chunkKey = chunksToDraw.front();
+                chunksToDraw.pop();
+                meshLock.unlock();  // Unlock before generating
+
+                std::unique_lock<std::mutex> chunkLock(chunkMutex);
+                auto chunkIt = chunks.find(chunkKey);
+                chunkLock.unlock(); // Unlock before generating mesh
+
+                if (chunkIt != chunks.end())
+                {
+                    chunkIt->second.generateMeshWithManager(this);
+                }
+            }
         }
-	}
 
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-
-    std::cout << "Mesh update completed in " << duration.count() << "ms for "
-        << chunksToDraw.size() << " chunks" << std::endl;
+		isDoneMeshing = true;
+        usedNewMeshingValue = false;
+	});
 }
 
 // Get count of chunks needing mesh updates
