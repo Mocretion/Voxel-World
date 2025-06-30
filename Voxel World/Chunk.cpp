@@ -4,6 +4,7 @@
 #include <iostream>
 #include <chrono>
 #include <omp.h>
+#include <queue>
 
 // Define the cube size (1.0f means each cube is 1 unit)
 const float Chunk::CUBE_SIZE = 1.0f;
@@ -615,7 +616,7 @@ void ChunkManager::generateChunks(int threads)
 
                 Chunk chunk = Chunk(coords.first, coords.second, &noiseGenerator);
 
-                std::unique_lock<std::mutex> chunkLock(chunkMutex);
+                std::unique_lock<std::shared_mutex> chunkLock(chunkMutex);
                 chunks.emplace(chunkKey, chunk);
                 chunkLock.unlock();
             }
@@ -696,41 +697,53 @@ std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX
 }
 
 // OPTIMIZED: Only update meshes that need it
-void ChunkManager::updateMeshes(int threadId)
+void ChunkManager::updateMeshes()
 {
-    isDoneMeshing = false;
+    threadsDoneMeshing.store(0);
 
-    meshWorker = std::jthread([this]() {
-        bool working = true;
+    std::vector<std::vector<Chunk*>> workPartitions(MESH_THREAD_COUNT);
 
-        while (working)
+    size_t threadIdx = 0;
+    while (!chunksToDraw.empty())
+    {
+        uint64_t chunkKey = chunksToDraw.front();
+        chunksToDraw.pop();
+
+        auto chunkIt = chunks.find(chunkKey);
+        if (chunkIt != chunks.end())
         {
-            std::unique_lock<std::mutex> meshLock(meshMutex);  // Lock for thread safety
-            if (chunksToDraw.empty())
-            {
-                working = false;  // No more chunks to generate
-                meshLock.unlock();  // Unlock before exiting
-            }
-            else
-            {
-                uint64_t chunkKey = chunksToDraw.front();
-                chunksToDraw.pop();
-                meshLock.unlock();  // Unlock before generating
-
-                std::unique_lock<std::mutex> chunkLock(chunkMutex);
-                auto chunkIt = chunks.find(chunkKey);
-                chunkLock.unlock(); // Unlock before generating mesh
-
-                if (chunkIt != chunks.end())
-                {
-                    chunkIt->second.generateMeshWithManager(this);
-                }
-            }
+            // Directly assign chunk pointer to a thread
+            workPartitions[threadIdx % MESH_THREAD_COUNT].push_back(&chunkIt->second);
         }
+        threadIdx++;
+    }
 
-		isDoneMeshing = true;
-        usedNewMeshingValue = false;
-	});
+    auto workers = std::vector<std::jthread>();
+    workers.reserve(MESH_THREAD_COUNT);
+
+    for (size_t i = 0; i < MESH_THREAD_COUNT; i++)
+    {
+        workers.emplace_back([this, i, chunks = std::move(workPartitions[i]), workers]() {
+            std::cout << "Mesh worker " << i << " started with " << chunks.size() << " chunks." << std::endl;
+
+            // Process all assigned chunks with zero synchronization overhead
+            for (Chunk* chunk : chunks)
+            {
+                chunk->generateMeshWithManager(this);
+                std::cout << "Mesh worker " << i << " processed chunk at ("
+					<< chunk->getChunkX() << ", " << chunk->getChunkZ() << ")." << std::endl;
+            }
+
+            // Atomic completion tracking
+            int completedThreads = threadsDoneMeshing.fetch_add(1);
+            std::cout << "Mesh worker " << i << " finished processing " << chunks.size() << " chunks." << std::endl;
+
+            if (isDoneMeshing())
+            {
+                usedNewMeshingValue = false;
+            }
+        });
+    }
 }
 
 // Get count of chunks needing mesh updates

@@ -20,8 +20,6 @@ void WorldRenderer::updateWorld(const Camera& camera)
         std::cout << "Player moved to chunk (" << playerChunk.x << ", " << playerChunk.y
             << ") from (" << lastUpdateChunk.x << ", " << lastUpdateChunk.y << ")" << std::endl;
 
-        auto startTime = std::chrono::high_resolution_clock::now();
-
         currentPlayerChunk = playerChunk;
 
         // Generate new chunks around the player
@@ -30,31 +28,35 @@ void WorldRenderer::updateWorld(const Camera& camera)
         // Remove chunks that are too far away
         removeDistantChunks(playerChunk);
 
-        auto chunkTime = std::chrono::high_resolution_clock::now();
-        auto chunkDuration = std::chrono::duration_cast<std::chrono::milliseconds>(chunkTime - startTime);
-
         // Mark mesh data as dirty so it gets uploaded to GPU
         lastUpdateChunk = playerChunk;
     }
 
-    // OPTIMIZED: Check if any chunks still need mesh updates (this can happen incrementally)
     int chunksNeedingGeneration = chunkManager.getChunksNeedingGeneration();
+	// Check if a generator is currently running, if not, start generating chunks
     if (chunkManager.getIsDoneGenerating() && chunksNeedingGeneration > 0)
     {
+        time = std::chrono::high_resolution_clock::now();
         std::cout << "Creating chunk data for chunks...: " << chunksNeedingGeneration << std::endl;
         chunkManager.generateChunks(CHUNK_GEN_PER_FRAME);
     }
 
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
-    if (chunkManager.getIsDoneMeshing() && chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
+    // Check if a mesher is currently running, and the generator is not => start meshing chunks
+    if (chunkManager.isDoneMeshing() && chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
     {
+        auto chunkDuration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - time);
         chunkManager.usedNewGenerationValue = true;
-        std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << std::endl;
-        chunkManager.updateMeshes(CHUNK_MESH_UPDATE_PER_FRAME);
+        std::cout << "Updating meshes for chunks that need it...: " << chunksNeedingUpdate << ". Generation took: " << chunkDuration << std::endl;
+        time = std::chrono::high_resolution_clock::now();
+        chunkManager.updateMeshes();
     }
 
-    if (chunkManager.getIsDoneMeshing() && !chunkManager.usedNewMeshingValue)
+	// Check if the mesher is done => update mesh data
+    if (chunkManager.isDoneMeshing() && !chunkManager.usedNewMeshingValue)
     {
+        auto meshDuration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - time);
+        std::cout << "Meshed in: " << meshDuration << std::endl;
         chunkManager.usedNewMeshingValue = true;
         updateMeshData();
     }
@@ -73,8 +75,8 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 {
     // Generate chunks in a square around the player
 
-	std::vector<std::pair<int, int>> chunksToGenerate;
-	std::vector<std::pair<int, int>> chunksToMesh;
+    std::vector<std::pair<int, int>> chunksToGenerate;
+    std::vector<std::pair<int, int>> chunksToMesh;
 
     for (int x = playerChunk.x - renderDistance - ADD_CALCULATION_DISTANCE; x <= playerChunk.x + renderDistance + ADD_CALCULATION_DISTANCE; x++)
     {
@@ -89,7 +91,7 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
             // Check if this chunk does not already exists
             if (chunk == nullptr)
             {
-				// Render only chunks within the render distance but NOT calculation distance
+                // Render only chunks within the render distance but NOT calculation distance
                 chunksToGenerate.emplace_back(x, z);
             }
 
@@ -102,7 +104,7 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
 
     if (!chunksToGenerate.empty())
     {
-		chunkManager.markChunksForGeneration(chunksToGenerate);
+        chunkManager.markChunksForGeneration(chunksToGenerate);
     }
 
     if (!chunksToMesh.empty())

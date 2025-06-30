@@ -9,7 +9,8 @@
 #include "PerlinNoise.h"
 #include "RemovableQueue.h"
 #include <mutex>
-
+#include <shared_mutex>
+#include <chrono>
 // Forward declaration for circular dependency
 class ChunkManager;
 
@@ -108,7 +109,7 @@ public:
 	int removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance);
 
 	// OPTIMIZED: Only regenerate meshes that need updates
-	void updateMeshes(int maxUpdates);
+	void updateMeshes();
 
 	// Get all vertices from all chunks (for rendering)
 	std::vector<Vertex> getAllVertices() const;
@@ -141,15 +142,18 @@ public:
 
 	int getChunksNeedingMeshUpdate() const;
 
-	bool getIsDoneMeshing() const
+	bool isDoneMeshing() const
 	{
-		return isDoneMeshing;
+		return threadsDoneMeshing.load() == MESH_THREAD_COUNT;
 	}
 
 	std::atomic<bool> usedNewMeshingValue{ true };
 
 
 private:
+	int GEN_THREAD_COUNT = 1;  // Number of threads for data generation
+	int MESH_THREAD_COUNT = 8;  // Number of threads for mesh generation
+
 	// Use a hash map instead of vector for efficient chunk lookup
 	// Key: pair<chunkX, chunkZ>, Value: Chunk object
 	// This is like Dictionary<(int, int), Chunk> in C#
@@ -161,7 +165,9 @@ private:
 	// Track which chunks need mesh updates
 	RemovableQueue<uint64_t> chunksToDraw;
 
-	std::mutex genMutex, meshMutex, chunkMutex;
+	std::mutex genMutex, meshMutex;
+
+	std::shared_mutex chunkMutex;
 
 	PerlinNoise noiseGenerator;
 
@@ -173,7 +179,7 @@ private:
 	std::jthread meshWorker;
 	// Add a chunk to the meshing queue.
 	bool markChunkForMeshing(int chunkX, int chunkZ);
-	std::atomic<bool> isDoneMeshing{ true };
+	std::atomic<int> threadsDoneMeshing{ MESH_THREAD_COUNT };
 
 	// Helper to convert chunk coordinates to hash key
 	uint64_t chunkCoordsToKey(int chunkX, int chunkZ) const;
@@ -185,4 +191,7 @@ private:
 
 	// Get neighboring chunk coordinates
 	std::vector<std::pair<int, int>> getNeighborCoordinates(int chunkX, int chunkZ) const;
+
+	std::chrono::high_resolution_clock::time_point time = std::chrono::high_resolution_clock::now();
+
 };

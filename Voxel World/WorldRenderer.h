@@ -6,6 +6,7 @@
 #include "Chunk.h"
 #include "Camera.h"
 #include "VulkanRenderer.h"
+#include <chrono>
 
 class WorldRenderer {
 public:
@@ -54,4 +55,6 @@ private:
     void generateChunksAroundPlayer(const glm::ivec2& playerChunk);
     void removeDistantChunks(const glm::ivec2& playerChunk);
     void updateMeshData();
+
+    std::chrono::high_resolution_clock::time_point time = std::chrono::high_resolution_clock::now();
 };
