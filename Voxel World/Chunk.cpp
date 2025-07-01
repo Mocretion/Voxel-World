@@ -204,11 +204,24 @@ bool Chunk::hasCubeAtWorld(int worldX, int worldY, int worldZ, ChunkManager* man
 }
 
 // Generate mesh using ChunkManager for cross-chunk AO
-void Chunk::generateMeshWithManager(ChunkManager* manager)
+void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
 {
     vertices.clear();
     indices.clear();
 
+    // Step 1: Create cache with ONE lock
+    std::unordered_map<uint64_t, const Chunk*> neighborCache;
+    {
+        std::shared_lock<std::shared_mutex> lock(manager->chunkMutex);
+        neighborCache = manager->createNeighborCache(chunkX, chunkZ);
+    }
+    // Lock released here!
+
+    if (debug)
+        std::cout << "Generating mesh for chunk (" << chunkX << ", " << chunkZ << ") with " 
+		<< neighborCache.size() << " neighbors cached." << std::endl;
+
+    // Step 2: Generate mesh using cached data (NO MORE LOCKS!)
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
         for (int z = 0; z < CHUNK_SIZE; z++)
@@ -222,99 +235,95 @@ void Chunk::generateMeshWithManager(ChunkManager* manager)
                     float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
                     glm::vec3 color = getTerrainColor(y);
-                    float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f;
 
-                    color += glm::vec3(variation);
-                    color = glm::clamp(color, 0.0f, 1.0f);
-
-                    // Generate faces with cross-chunk ambient occlusion
-                    addCubeWithCullingAndAOCrossChunk(worldX, worldY, worldZ, color, x, y, z, manager);
-					setMeshGenerated(true);
+                    // Use cached version instead of manager->hasCubeAtWorld
+                    addCubeWithCullingAndAOCached(worldX, worldY, worldZ, color, x, y, z, manager, neighborCache, debug);
+                    
                 }
             }
         }
     }
+
+    neighborCache.clear();
+
+    
+    setMeshGenerated(true);
 }
 
 // Calculate AO with cross-chunk support
-float Chunk::calculateVertexAOCrossChunk(int localX, int localY, int localZ, const glm::vec3& normal, const glm::vec3& vertexOffset, ChunkManager* manager) const
+float Chunk::calculateVertexAOCached(int localX, int localY, int localZ, const glm::vec3& normal,
+    const glm::vec3& vertexOffset, ChunkManager* manager,
+    const std::unordered_map<uint64_t, const Chunk*>& neighborCache) const
 {
-    // Convert vertex offset to integer directions for neighbor checking
-    int dx = static_cast<int>(vertexOffset.x * 2.0f);  // *2 because offset is ±0.5
+    int dx = static_cast<int>(vertexOffset.x * 2.0f);
     int dy = static_cast<int>(vertexOffset.y * 2.0f);
     int dz = static_cast<int>(vertexOffset.z * 2.0f);
 
-    // For each vertex, we check 3 neighbors: 2 edge neighbors and 1 corner neighbor
     int side1 = 0, side2 = 0, corner = 0;
-
-    // Convert local coordinates to world coordinates for cross-chunk queries
     int worldX, worldY, worldZ;
     localToWorld(localX, localY, localZ, worldX, worldY, worldZ);
 
-    // Determine which neighbors to check based on the face normal and vertex position
-    if (std::abs(normal.x) > 0.5f) // X-facing normal (left/right face)
+    if (std::abs(normal.x) > 0.5f)
     {
-        int offsetX = normal.x > 0 ? 1 : -1;  // Move outside the current voxel
-
-        // Use world coordinates for cross-chunk queries
-        side1 = hasCubeAtWorld(worldX + offsetX, worldY + dy, worldZ, manager) ? 1 : 0;      // Y direction neighbor
-        side2 = hasCubeAtWorld(worldX + offsetX, worldY, worldZ + dz, manager) ? 1 : 0;      // Z direction neighbor
-        corner = hasCubeAtWorld(worldX + offsetX, worldY + dy, worldZ + dz, manager) ? 1 : 0; // Corner neighbor
+        int offsetX = normal.x > 0 ? 1 : -1;
+        side1 = manager->hasCubeAtWorldCached(worldX + offsetX, worldY + dy, worldZ, neighborCache, false) ? 1 : 0;
+        side2 = manager->hasCubeAtWorldCached(worldX + offsetX, worldY, worldZ + dz, neighborCache, false) ? 1 : 0;
+        corner = manager->hasCubeAtWorldCached(worldX + offsetX, worldY + dy, worldZ + dz, neighborCache, false) ? 1 : 0;
     }
-    else if (std::abs(normal.y) > 0.5f) // Y-facing normal (top/bottom face)
+    else if (std::abs(normal.y) > 0.5f)
     {
-        int offsetY = normal.y > 0 ? 1 : -1;  // Move outside the current voxel
-
-        side1 = hasCubeAtWorld(worldX + dx, worldY + offsetY, worldZ, manager) ? 1 : 0;      // X direction neighbor
-        side2 = hasCubeAtWorld(worldX, worldY + offsetY, worldZ + dz, manager) ? 1 : 0;      // Z direction neighbor
-        corner = hasCubeAtWorld(worldX + dx, worldY + offsetY, worldZ + dz, manager) ? 1 : 0; // Corner neighbor
-    }
-    else // Z-facing normal (front/back face)
-    {
-        int offsetZ = normal.z > 0 ? 1 : -1;  // Move outside the current voxel
-
-        side1 = hasCubeAtWorld(worldX + dx, worldY, worldZ + offsetZ, manager) ? 1 : 0;      // X direction neighbor
-        side2 = hasCubeAtWorld(worldX, worldY + dy, worldZ + offsetZ, manager) ? 1 : 0;      // Y direction neighbor
-        corner = hasCubeAtWorld(worldX + dx, worldY + dy, worldZ + offsetZ, manager) ? 1 : 0; // Corner neighbor
-    }
-
-    // Calculate AO using the standard voxel AO formula
-    if (side1 && side2)
-    {
-        return 0.25f;  // Both sides blocked = heavily occluded
+        int offsetY = normal.y > 0 ? 1 : -1;
+        side1 = manager->hasCubeAtWorldCached(worldX + dx, worldY + offsetY, worldZ, neighborCache, false) ? 1 : 0;
+        side2 = manager->hasCubeAtWorldCached(worldX, worldY + offsetY, worldZ + dz, neighborCache, false) ? 1 : 0;
+        corner = manager->hasCubeAtWorldCached(worldX + dx, worldY + offsetY, worldZ + dz, neighborCache, false) ? 1 : 0;
     }
     else
     {
-        return 1.0f - (side1 + side2 + corner) * 0.25f;  // Gradual occlusion
+        int offsetZ = normal.z > 0 ? 1 : -1;
+        side1 = manager->hasCubeAtWorldCached(worldX + dx, worldY, worldZ + offsetZ, neighborCache, false) ? 1 : 0;
+        side2 = manager->hasCubeAtWorldCached(worldX, worldY + dy, worldZ + offsetZ, neighborCache, false) ? 1 : 0;
+        corner = manager->hasCubeAtWorldCached(worldX + dx, worldY + dy, worldZ + offsetZ, neighborCache, false) ? 1 : 0;
     }
-}
 
-// Add cube with cross-chunk culling and AO
-void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float worldZ, glm::vec3 color, int localX, int localY, int localZ, ChunkManager* manager)
+    if (side1 && side2)
+    {
+        return 0.25f;
+    }
+    else
+    {
+        return 1.0f - (side1 + side2 + corner) * 0.25f;
+    }
+
+};
+
+void Chunk::addCubeWithCullingAndAOCached(float worldX, float worldY, float worldZ, glm::vec3 color,
+    int localX, int localY, int localZ,
+    ChunkManager* manager,
+    const std::unordered_map<uint64_t, const Chunk*>& neighborCache, bool debug)
 {
-    // Convert local coordinates to world coordinates for cross-chunk neighbor checking
+    // Convert local coordinates to world coordinates
     int worldCubeX, worldCubeY, worldCubeZ;
     localToWorld(localX, localY, localZ, worldCubeX, worldCubeY, worldCubeZ);
 
-    // Check which faces should be rendered based on cross-chunk neighbors
-    bool renderFront = !hasCubeAtWorld(worldCubeX, worldCubeY, worldCubeZ + 1, manager);   // +Z direction
-    bool renderBack = !hasCubeAtWorld(worldCubeX, worldCubeY, worldCubeZ - 1, manager);    // -Z direction
-    bool renderRight = !hasCubeAtWorld(worldCubeX + 1, worldCubeY, worldCubeZ, manager);   // +X direction
-    bool renderLeft = !hasCubeAtWorld(worldCubeX - 1, worldCubeY, worldCubeZ, manager);    // -X direction
-    bool renderTop = !hasCubeAtWorld(worldCubeX, worldCubeY + 1, worldCubeZ, manager);     // +Y direction
-    bool renderBottom = !hasCubeAtWorld(worldCubeX, worldCubeY - 1, worldCubeZ, manager);  // -Y direction
+    // Check neighbors using CACHED data instead of locks
+    bool renderFront = !manager->hasCubeAtWorldCached(worldCubeX, worldCubeY, worldCubeZ + 1, neighborCache, debug);
+    bool renderBack = !manager->hasCubeAtWorldCached(worldCubeX, worldCubeY, worldCubeZ - 1, neighborCache, debug);
+    bool renderRight = !manager->hasCubeAtWorldCached(worldCubeX + 1, worldCubeY, worldCubeZ, neighborCache, debug);
+    bool renderLeft = !manager->hasCubeAtWorldCached(worldCubeX - 1, worldCubeY, worldCubeZ, neighborCache, debug);
+    bool renderTop = !manager->hasCubeAtWorldCached(worldCubeX, worldCubeY + 1, worldCubeZ, neighborCache, debug);
+    bool renderBottom = !manager->hasCubeAtWorldCached(worldCubeX, worldCubeY - 1, worldCubeZ, neighborCache, debug);
 
+    // Generate faces with cached AO calculation
     if (renderFront)
     {
-        // Front face (Z+) with cross-chunk AO calculation
         glm::vec3 normal(0, 0, 1);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
-        // Calculate cross-chunk AO for each vertex of this face
-        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager);
-        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager);
-        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager);
-        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager);
+        // Calculate AO using cached data
+        float ao0 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager, neighborCache);
+        float ao1 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager, neighborCache);
+        float ao2 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager, neighborCache);
+        float ao3 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager, neighborCache);
 
         vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
@@ -323,7 +332,7 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
             {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao3}
             });
 
-        // Adjust triangle winding based on AO
+        // Add indices with proper winding
         if (ao0 + ao2 > ao1 + ao3)
         {
             indices.insert(indices.end(), {
@@ -346,10 +355,10 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
         glm::vec3 normal(0, 0, -1);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
-        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager);
-        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager);
-        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager);
-        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager);
+        float ao0 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager, neighborCache);
+        float ao1 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager, neighborCache);
+        float ao2 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager, neighborCache);
+        float ao3 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager, neighborCache);
 
         vertices.insert(vertices.end(), {
             {{worldX + 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
@@ -383,10 +392,10 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
         glm::vec3 normal(-1, 0, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
-        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager);
-        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager);
-        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager);
-        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager);
+        float ao0 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager, neighborCache);
+        float ao1 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager, neighborCache);
+        float ao2 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager, neighborCache);
+        float ao3 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager, neighborCache);
 
         vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
@@ -417,10 +426,10 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
         glm::vec3 normal(1, 0, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
-        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager);
-        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager);
-        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager);
-        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager);
+        float ao0 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager, neighborCache);
+        float ao1 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager, neighborCache);
+        float ao2 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager, neighborCache);
+        float ao3 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager, neighborCache);
 
         vertices.insert(vertices.end(), {
             {{worldX + 0.5f, worldY - 0.5f, worldZ + 0.5f}, color, ao0},
@@ -451,10 +460,10 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
         glm::vec3 normal(0, 1, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
-        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager);
-        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager);
-        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager);
-        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager);
+        float ao0 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, 0.5f), manager, neighborCache);
+        float ao1 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, 0.5f), manager, neighborCache);
+        float ao2 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, 0.5f, -0.5f), manager, neighborCache);
+        float ao3 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, 0.5f, -0.5f), manager, neighborCache);
 
         vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY + 0.5f, worldZ + 0.5f}, color, ao0},
@@ -485,10 +494,10 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
         glm::vec3 normal(0, -1, 0);
         uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
-        float ao0 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager);
-        float ao1 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager);
-        float ao2 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager);
-        float ao3 = calculateVertexAOCrossChunk(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager);
+        float ao0 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, -0.5f), manager, neighborCache);
+        float ao1 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, -0.5f), manager, neighborCache);
+        float ao2 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(0.5f, -0.5f, 0.5f), manager, neighborCache);
+        float ao3 = calculateVertexAOCached(localX, localY, localZ, normal, glm::vec3(-0.5f, -0.5f, 0.5f), manager, neighborCache);
 
         vertices.insert(vertices.end(), {
             {{worldX - 0.5f, worldY - 0.5f, worldZ - 0.5f}, color, ao0},
@@ -512,343 +521,4 @@ void Chunk::addCubeWithCullingAndAOCrossChunk(float worldX, float worldY, float 
                 });
         }
     }
-}
-
-// ChunkManager methods for cross-chunk support
-
-ChunkManager::ChunkManager() : noiseGenerator(12345)
-{
-    // Use a fixed seed for consistent terrain
-}
-
-uint64_t ChunkManager::chunkCoordsToKey(int chunkX, int chunkZ) const
-{
-    // Combine two 32-bit integers into one 64-bit key
-    uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(chunkX)) << 32) |
-        static_cast<uint64_t>(static_cast<uint32_t>(chunkZ));
-    return key;
-}
-
-std::pair<int, int> ChunkManager::keyToChunkCoords(uint64_t key) const
-{
-    // Extract the upper 32 bits for chunkX
-    int chunkX = static_cast<int>(static_cast<uint32_t>(key >> 32));
-
-    // Extract the lower 32 bits for chunkZ
-    int chunkZ = static_cast<int>(static_cast<uint32_t>(key & 0xFFFFFFFF));
-
-    return std::make_pair(chunkX, chunkZ);
-}
-
-void ChunkManager::markChunksForGeneration(std::vector<std::pair<int, int>> chunks)
-{
-    std::unique_lock<std::mutex> lock(genMutex);  // Lock
-    for(const auto& coords : chunks)
-    {
-        int chunkX = coords.first;
-        int chunkZ = coords.second;
-		markChunkForGeneration(chunkX, chunkZ);
-	}
-    lock.unlock();  // Manual unlock
-}
-
-bool ChunkManager::markChunkForGeneration(int chunkX, int chunkZ)
-{
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-
-	// If chunk doesn't exist, and if is is not already in the queue: add it to the queue for generation
-    if(chunks.find(key) == chunks.end() && !chunksToGenerate.contains(key))
-    {
-        chunksToGenerate.push(key);
-        return true;
-	}    
-
-    return false;
-}
-
-void ChunkManager::markChunksForMeshing(std::vector<std::pair<int, int>> chunks)
-{
-    std::unique_lock<std::mutex> lock(meshMutex);  // Lock
-    for (const auto& coords : chunks)
-    {
-        int chunkX = coords.first;
-        int chunkZ = coords.second;
-        markChunkForMeshing(chunkX, chunkZ);
-    }
-    lock.unlock();  // Manual unlock
-}
-
-bool ChunkManager::markChunkForMeshing(int chunkX, int chunkZ)
-{
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-
-    if (!chunksToDraw.contains(key))
-    {
-        chunksToDraw.push(key);
-        return true;
-    }
-    
-    return false;
-}
-
-void ChunkManager::generateChunks(int threads)
-{
-	isDoneGenerating = false;
-
-    generationWorker = std::jthread([this]() {
-        bool working = true;
-
-        while (working)
-        {
-            std::unique_lock<std::mutex> mutexLock(genMutex);  // Lock for thread safety
-            if (chunksToGenerate.empty())
-            {
-                working = false;  // No more chunks to generate
-                mutexLock.unlock();  // Unlock before exiting
-            }
-            else
-            {
-                uint64_t chunkKey = chunksToGenerate.front();
-                chunksToGenerate.pop();
-                mutexLock.unlock();  // Unlock before generating
-
-                auto coords = keyToChunkCoords(chunkKey);
-
-                Chunk chunk = Chunk(coords.first, coords.second, &noiseGenerator);
-
-                std::unique_lock<std::shared_mutex> chunkLock(chunkMutex);
-                chunks.emplace(chunkKey, chunk);
-                chunkLock.unlock();
-            }
-        }
-
-        isDoneGenerating = true;
-        usedNewGenerationValue = false;
-    });
-}
-
-// OPTIMIZED: Track which chunks were removed and mark neighbors dirty
-int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance)
-{
-    std::vector<uint64_t> chunkMeshToRemove;
-    std::vector<uint64_t> chunkDataToRemove;
-
-    // Find chunks to remove
-    for (const auto& pair : chunks)
-    {
-        const Chunk& chunk = pair.second;
-
-        int deltaX = chunk.getChunkX() - centerX;
-        int deltaZ = chunk.getChunkZ() - centerZ;
-        int distance = std::max(std::abs(deltaX), std::abs(deltaZ));
-
-        if (distance > maxDataDistance)
-        {
-            chunkDataToRemove.push_back(pair.first);
-        }
-        else if( distance > maxMeshDistance)
-        {
-            chunkMeshToRemove.push_back(pair.first);
-		}
-    }
-
-    // Remove the distant chunks
-    for (uint64_t key : chunkDataToRemove)
-    {
-        auto it = chunks.find(key);
-        if (it != chunks.end())
-        {
-            /*std::cout << "Removing distant chunk data at ("
-                << it->second.getChunkX() << ", "
-                << it->second.getChunkZ() << ")" << std::endl;
-                */
-            // Remove from dirty set if it was there
-            chunksToDraw.remove(key);
-            chunks.erase(it);
-        }
-    }
-
-    for (uint64_t key : chunkMeshToRemove)
-    {
-        auto it = chunks.find(key);
-        if (it != chunks.end())
-        {
-            /*std::cout << "Removing distant chunk mesh at ("
-                << it->second.getChunkX() << ", "
-                << it->second.getChunkZ() << ")" << std::endl;
-            */
-            // Remove from dirty set if it was there
-            chunksToDraw.remove(key);
-            it->second.clearMesh();
-        }
-    }
-
-    return static_cast<int>(chunkDataToRemove.size());
-}
-
-// Get neighboring chunk coordinates
-std::vector<std::pair<int, int>> ChunkManager::getNeighborCoordinates(int chunkX, int chunkZ) const
-{
-    return {
-        {chunkX - 1, chunkZ - 1}, {chunkX, chunkZ - 1}, {chunkX + 1, chunkZ - 1},
-        {chunkX - 1, chunkZ},                           {chunkX + 1, chunkZ},
-        {chunkX - 1, chunkZ + 1}, {chunkX, chunkZ + 1}, {chunkX + 1, chunkZ + 1}
-    };
-}
-
-// OPTIMIZED: Only update meshes that need it
-void ChunkManager::updateMeshes()
-{
-    threadsDoneMeshing.store(0);
-
-    std::vector<std::vector<Chunk*>> workPartitions(MESH_THREAD_COUNT);
-
-    size_t threadIdx = 0;
-    while (!chunksToDraw.empty())
-    {
-        uint64_t chunkKey = chunksToDraw.front();
-        chunksToDraw.pop();
-
-        auto chunkIt = chunks.find(chunkKey);
-        if (chunkIt != chunks.end())
-        {
-            // Directly assign chunk pointer to a thread
-            workPartitions[threadIdx % MESH_THREAD_COUNT].push_back(&chunkIt->second);
-        }
-        threadIdx++;
-    }
-
-    auto workers = std::vector<std::jthread>();
-    workers.reserve(MESH_THREAD_COUNT);
-
-    for (size_t i = 0; i < MESH_THREAD_COUNT; i++)
-    {
-        workers.emplace_back([this, i, chunks = std::move(workPartitions[i]), workers]() {
-            std::cout << "Mesh worker " << i << " started with " << chunks.size() << " chunks." << std::endl;
-
-            // Process all assigned chunks with zero synchronization overhead
-            for (Chunk* chunk : chunks)
-            {
-                chunk->generateMeshWithManager(this);
-                std::cout << "Mesh worker " << i << " processed chunk at ("
-					<< chunk->getChunkX() << ", " << chunk->getChunkZ() << ")." << std::endl;
-            }
-
-            // Atomic completion tracking
-            int completedThreads = threadsDoneMeshing.fetch_add(1);
-            std::cout << "Mesh worker " << i << " finished processing " << chunks.size() << " chunks." << std::endl;
-
-            if (isDoneMeshing())
-            {
-                usedNewMeshingValue = false;
-            }
-        });
-    }
-}
-
-// Get count of chunks needing mesh updates
-int ChunkManager::getChunksNeedingMeshUpdate() const
-{
-    return static_cast<int>(chunksToDraw.size());
-}
-
-int ChunkManager::getChunksNeedingGeneration() const
-{
-    return static_cast<int>(chunksToGenerate.size());
-}
-
-// Keep these methods the same as before:
-std::vector<Vertex> ChunkManager::getAllVertices() const
-{
-    std::vector<Vertex> allVertices;
-
-    for (const auto& pair : chunks)
-    {
-        const Chunk& chunk = pair.second;
-        const auto& chunkVertices = chunk.getVertices();
-        allVertices.insert(allVertices.end(), chunkVertices.begin(), chunkVertices.end());
-    }
-
-    return allVertices;
-}
-
-std::vector<uint32_t> ChunkManager::getAllIndices() const
-{
-    std::vector<uint32_t> allIndices;
-    uint32_t vertexOffset = 0;
-
-    for (const auto& pair : chunks)
-    {
-        const Chunk& chunk = pair.second;
-        const auto& chunkIndices = chunk.getIndices();
-
-        for (uint32_t index : chunkIndices)
-        {
-            allIndices.push_back(index + vertexOffset);
-        }
-
-        vertexOffset += static_cast<uint32_t>(chunk.getVertices().size());
-    }
-
-    return allIndices;
-}
-
-Chunk* ChunkManager::getChunk(int chunkX, int chunkZ)
-{
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-    auto it = chunks.find(key);
-
-    if (it != chunks.end())
-    {
-        return &(it->second);
-    }
-
-    return nullptr;
-}
-
-std::vector<std::pair<int, int>> ChunkManager::getLoadedChunkCoordinates() const
-{
-    std::vector<std::pair<int, int>> coordinates;
-
-    for (const auto& pair : chunks)
-    {
-        const Chunk& chunk = pair.second;
-        coordinates.emplace_back(chunk.getChunkX(), chunk.getChunkZ());
-    }
-
-    return coordinates;
-}
-
-void ChunkManager::worldToChunkAndLocal(int worldX, int worldY, int worldZ, int& chunkX, int& chunkZ, int& localX, int& localY, int& localZ) const
-{
-    // Calculate which chunk these world coordinates belong to
-    // This handles negative coordinates correctly using integer division
-    chunkX = worldX < 0 ? (worldX - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldX / Chunk::CHUNK_SIZE;
-    chunkZ = worldZ < 0 ? (worldZ - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldZ / Chunk::CHUNK_SIZE;
-
-    // Calculate local coordinates within the chunk
-    localX = worldX - chunkX * Chunk::CHUNK_SIZE;
-    localY = worldY;  // Y coordinates are already local
-    localZ = worldZ - chunkZ * Chunk::CHUNK_SIZE;
-
-    // Ensure local coordinates are in valid range [0, CHUNK_SIZE-1]
-    if (localX < 0) localX += Chunk::CHUNK_SIZE;
-    if (localZ < 0) localZ += Chunk::CHUNK_SIZE;
-}
-
-bool ChunkManager::hasCubeAtWorld(int worldX, int worldY, int worldZ) const
-{
-    // Convert world coordinates to chunk and local coordinates
-    int chunkX, chunkZ, localX, localY, localZ;
-    worldToChunkAndLocal(worldX, worldY, worldZ, chunkX, chunkZ, localX, localY, localZ);
-
-    // Find the chunk
-    Chunk* chunk = const_cast<ChunkManager*>(this)->getChunk(chunkX, chunkZ);
-    if (chunk == nullptr)
-    {
-        return false;  // No chunk exists at this location
-    }
-
-    // Check if cube exists in that chunk
-    return chunk->hasCubeAt(localX, localY, localZ);
 }

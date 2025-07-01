@@ -20,6 +20,7 @@ add_executable(${PROJECT_NAME}
     "main.cpp"
     "VoxelWorld.cpp"
     "Chunk.cpp"
+    "ChunkManager.cpp"
     "Camera.cpp"
     "PerlinNoise.cpp"
     "InputManager.cpp"
