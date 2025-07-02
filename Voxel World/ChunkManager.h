@@ -55,7 +55,7 @@ public:
     mutable std::shared_mutex chunkMutex;
 
 private:
-    // OPTIMIZATION 1: Memory pool for better cache locality
+    // SIMPLIFIED: Memory pool for better cache locality (no TLS complexity)
     struct ChunkPool {
         std::vector<std::unique_ptr<Chunk>> chunks;  // Use unique_ptr for stable addresses
         std::vector<bool> allocated;                 // Track which slots are used
@@ -74,11 +74,9 @@ private:
     std::unordered_map<uint64_t, size_t> chunkKeyToPoolIndex;
     mutable std::shared_mutex poolIndexMutex;  // Protect the key->index mapping
 
-    // OPTIMIZATION 2: Lock-free work distribution
+    // SIMPLIFIED: Basic work distribution
     struct WorkQueue {
         std::vector<uint64_t> items;
-        std::atomic<size_t> head{ 0 };
-        std::atomic<size_t> tail{ 0 };
         mutable std::mutex queueMutex;  // Protect vector operations
 
         void push(uint64_t item);
@@ -93,7 +91,7 @@ private:
     WorkQueue generationQueue;
     WorkQueue meshingQueue;
 
-    // OPTIMIZATION 3: Thread-local work batches
+    // Thread-local work batches (simplified)
     struct ThreadWorkBatch {
         std::vector<size_t> chunkIndices;           // Indices into chunk pool
         std::vector<std::pair<int, int>> coordPairs; // Chunk coordinates for spatial locality
@@ -120,17 +118,17 @@ private:
         }
     };
 
-    // OPTIMIZATION 4: Minimize false sharing with proper alignment
+    // Thread management flags
     alignas(64) std::atomic<bool> isDoneGenerating{ true };
     alignas(64) std::atomic<bool> isDoneMeshing{ true };
     alignas(64) std::atomic<int> activeGenerationThreads{ 0 };
     alignas(64) std::atomic<int> activeMeshingThreads{ 0 };
 
     // Configuration - optimized for better cache performance
-    static constexpr int GENERATION_THREAD_COUNT = 4;  // Reduced from multiple threads
-    static constexpr int MESHING_THREAD_COUNT = 1;     // Reduced from 4 to minimize cache conflicts
-    static constexpr size_t CHUNKS_PER_BATCH = 4;      // Process chunks in small batches
-    static constexpr size_t INITIAL_POOL_SIZE = 128;   // Pre-allocate pool memory
+    static constexpr int GENERATION_THREAD_COUNT = 4;
+    static constexpr int MESHING_THREAD_COUNT = 1;
+    static constexpr size_t CHUNKS_PER_BATCH = 4;
+    static constexpr size_t INITIAL_POOL_SIZE = 128;
 
     PerlinNoise noiseGenerator;
 

@@ -1,4 +1,4 @@
-#include "ChunkManager.h"
+﻿#include "ChunkManager.h"
 #include "Chunk.h"
 #include <random>
 #include <algorithm>
@@ -47,7 +47,7 @@ ChunkManager::~ChunkManager()
 }
 
 // ============================================================================
-// CHUNK POOL IMPLEMENTATION (OPTIMIZATION 1: Memory Locality)
+// CHUNK POOL IMPLEMENTATION (SIMPLIFIED)
 // ============================================================================
 
 size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkZ, PerlinNoise* noise)
@@ -126,7 +126,7 @@ void ChunkManager::ChunkPool::clear()
 }
 
 // ============================================================================
-// WORK QUEUE IMPLEMENTATION (OPTIMIZATION 2: Better Concurrency)
+// WORK QUEUE IMPLEMENTATION (SIMPLIFIED)
 // ============================================================================
 
 void ChunkManager::WorkQueue::push(uint64_t item)
@@ -291,7 +291,7 @@ bool ChunkManager::markChunkForMeshing(int chunkX, int chunkZ)
 }
 
 // ============================================================================
-// GENERATION SYSTEM (OPTIMIZATION 3: Batch Processing)
+// GENERATION SYSTEM (SIMPLIFIED - NO TLS)
 // ============================================================================
 
 void ChunkManager::generateChunks(int maxUpdates)
@@ -322,6 +322,8 @@ void ChunkManager::generateChunksWorker()
 {
     ThreadWorkBatch batch;
 
+    std::cout << "[FAST] Generation worker started" << std::endl;
+
     while (!shutdownRequested.load())
     {
         batch.clear();
@@ -338,7 +340,6 @@ void ChunkManager::generateChunksWorker()
             auto coords = keyToChunkCoords(chunkKey);
             batch.coordPairs.push_back(coords);
         }
-
 
         if (batch.emptyCoords())
         {
@@ -360,6 +361,8 @@ void ChunkManager::generateChunksWorker()
 
 void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch)
 {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     for (const auto& coords : batch.coordPairs)
     {
         int chunkX = coords.first;
@@ -375,7 +378,7 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch)
             }
         }
 
-        // Allocate and generate chunk
+        // Allocate and generate chunk (now uses stack allocation internally)
         size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkZ, &noiseGenerator);
 
         // Add to index mapping
@@ -384,10 +387,19 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch)
             chunkKeyToPoolIndex[key] = poolIndex;
         }
     }
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+    if (!batch.coordPairs.empty())
+    {
+        //std::cout << "[FAST] Generated " << batch.coordPairs.size() << " chunks in "
+        //    << duration << " (avg: " << duration.count() / batch.coordPairs.size() << "ms/chunk)" << std::endl;
+    }
 }
 
 // ============================================================================
-// MESHING SYSTEM (OPTIMIZATION 4: Improved Cache Usage)
+// MESHING SYSTEM (SIMPLIFIED)
 // ============================================================================
 
 void ChunkManager::updateMeshes()
@@ -410,7 +422,7 @@ void ChunkManager::updateMeshes()
     {
         meshingWorkers.emplace_back([this, i]() {
             meshChunksWorker(i);
-        });
+            });
     }
 }
 
@@ -418,7 +430,7 @@ void ChunkManager::meshChunksWorker(int threadId)
 {
     ThreadWorkBatch batch;
 
-	std::cout << "Meshing worker " << threadId << " started" << std::endl;
+    std::cout << "[FAST] Meshing worker " << threadId << " started" << std::endl;
 
     while (!shutdownRequested.load())
     {
