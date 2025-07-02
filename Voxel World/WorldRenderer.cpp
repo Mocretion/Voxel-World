@@ -43,7 +43,7 @@ void WorldRenderer::updateWorld(const Camera& camera)
 
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();
     // Check if a mesher is currently running, and the generator is not => start meshing chunks
-    if (chunkManager.isDoneMeshing() && chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
+    if (chunkManager.getIsDoneMeshing() && chunkManager.getIsDoneGenerating() && !chunkManager.usedNewGenerationValue && chunksNeedingGeneration == 0 && chunksNeedingUpdate > 0)
     {
         auto chunkDuration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - time);
         chunkManager.usedNewGenerationValue = true;
@@ -53,7 +53,7 @@ void WorldRenderer::updateWorld(const Camera& camera)
     }
 
 	// Check if the mesher is done => update mesh data
-    if (chunkManager.isDoneMeshing() && !chunkManager.usedNewMeshingValue)
+    if (chunkManager.getIsDoneMeshing() && !chunkManager.usedNewMeshingValue)
     {
         auto meshDuration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - time);
         std::cout << "Meshed in: " << meshDuration << std::endl;

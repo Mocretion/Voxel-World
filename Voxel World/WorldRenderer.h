@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
 #include "Chunk.h"
+#include "ChunkManager.h"
 #include "Camera.h"
 #include "VulkanRenderer.h"
 #include <chrono>

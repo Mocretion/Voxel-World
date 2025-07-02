@@ -11,7 +11,8 @@
 #include <mutex>
 #include <shared_mutex>
 #include <chrono>
-#include "ChunkManager.h"
+
+class ChunkManager;
 
 class Chunk {
 public:

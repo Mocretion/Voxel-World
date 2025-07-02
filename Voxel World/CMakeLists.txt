@@ -31,13 +31,16 @@ add_executable(${PROJECT_NAME}
 )
 
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /openmp)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(${PROJECT_NAME} PRIVATE -fopenmp)
-    target_link_libraries(${PROJECT_NAME} -fopenmp)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(${PROJECT_NAME} PRIVATE -fopenmp)
-    target_link_libraries(${PROJECT_NAME} -fopenmp)
+    target_compile_options(${PROJECT_NAME} PRIVATE /FS /openmp)
+else()
+    # Keep the existing OpenMP settings for other compilers
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(${PROJECT_NAME} PRIVATE -fopenmp)
+        target_link_libraries(${PROJECT_NAME} -fopenmp)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(${PROJECT_NAME} PRIVATE -fopenmp)
+        target_link_libraries(${PROJECT_NAME} -fopenmp)
+    endif()
 endif()
 
 # Link libraries (vcpkg style)
