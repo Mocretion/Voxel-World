@@ -458,14 +458,14 @@ void Chunk::addQuadToMesh(const Quad& quad)
     }
 
     // Add vertices (no more AO values!)
-    vertices.push_back({ v0, quad.color });
-    vertices.push_back({ v1, quad.color });
-    vertices.push_back({ v2, quad.color });
-    vertices.push_back({ v3, quad.color });
+    vertices.push_back({ v0, quad.color, normal });
+    vertices.push_back({ v1, quad.color, normal });
+    vertices.push_back({ v2, quad.color, normal });
+    vertices.push_back({ v3, quad.color, normal });
 
     // Add indices for two triangles forming the quad (counter-clockwise winding)
     indices.insert(indices.end(), {
         baseIndex + 0, baseIndex + 1, baseIndex + 2,
         baseIndex + 2, baseIndex + 3, baseIndex + 0
-        });
+    });
 }
