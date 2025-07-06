@@ -1,3 +1,6 @@
+// ============================================================================
+// BALANCED ssao_fragment.frag - Fixed distance and face balance
+// ============================================================================
 #version 450
 
 layout(location = 0) in vec2 fragTexCoord;
@@ -8,95 +11,161 @@ layout(binding = 2) uniform sampler2D gNormal;
 layout(binding = 3) uniform sampler2D gAlbedo;
 
 // SSAO parameters
-layout(binding = 0) uniform SSAOParams
-{
+layout(binding = 0) uniform SSAOParams {
     mat4 projection;
     mat4 view;
-    vec4 samples[64];        // Sample kernel (64 samples)
-    vec2 screenSize;         // Screen dimensions
-    float radius;            // Sample radius
-    float bias;              // Depth bias to prevent self-occlusion
+    vec4 samples[64];
+    vec2 screenSize;
+    float radius;
+    float bias;
 } ssaoParams;
 
-// Noise texture for randomizing samples
+// Noise texture
 layout(binding = 4) uniform sampler2D noiseTexture;
 
 layout(location = 0) out vec4 outColor;
 
-// Constants
-const int KERNEL_SIZE = 64;
+const int KERNEL_SIZE = 32; // Good balance of quality and performance
 const float PI = 3.14159265359;
 
 void main()
 {
     // Sample G-buffer
-    vec3 worldPos = texture(gPosition, fragTexCoord).xyz;
+    vec4 positionData = texture(gPosition, fragTexCoord);
+    vec3 worldPos = positionData.xyz;
+    float viewDepth = positionData.w;
+    
     vec3 worldNormal = normalize(texture(gNormal, fragTexCoord).xyz);
     vec3 albedo = texture(gAlbedo, fragTexCoord).rgb;
-
-    // Skip SSAO for background pixels (no geometry)
-    if (length(worldNormal) < 0.1)
-    {
+    
+    // Skip SSAO for background pixels
+    if (length(worldNormal) < 0.1) {
         outColor = vec4(albedo, 1.0);
         return;
     }
-
+    
     // Transform position and normal to view space
     vec4 viewPos4 = ssaoParams.view * vec4(worldPos, 1.0);
     vec3 viewPos = viewPos4.xyz;
     vec3 viewNormal = normalize(mat3(ssaoParams.view) * worldNormal);
-
-    // Get noise vector for this pixel (tiled across screen)
-    vec2 noiseScale = ssaoParams.screenSize / 4.0; // 4x4 noise texture
-    vec3 randomVec = normalize(texture(noiseTexture, fragTexCoord * noiseScale).xyz);
-
-    // Create TBN matrix to orient samples around surface normal
+    
+    // EXTENDED DISTANCE FADE - much longer range
+    float distanceFromCamera = length(viewPos);
+    float distanceFade = 1.0 - smoothstep(50.0, 150.0, distanceFromCamera); // Extended from 20-50 to 50-150
+    
+    // If too far away, skip SSAO entirely
+    if (distanceFade < 0.01) {
+        outColor = vec4(albedo, 1.0);
+        return;
+    }
+    
+    // Get noise vector with temporal stability
+    vec2 noiseCoord = (worldPos.xz * 0.05) + (fragTexCoord * ssaoParams.screenSize / 64.0);
+    vec3 randomVec = normalize(texture(noiseTexture, noiseCoord).xyz);
+    
+    // Create TBN matrix
     vec3 tangent = normalize(randomVec - viewNormal * dot(randomVec, viewNormal));
     vec3 bitangent = cross(viewNormal, tangent);
     mat3 TBN = mat3(tangent, bitangent, viewNormal);
-
+    
     float occlusion = 0.0;
-
-    // Sample around the current pixel
+    int validSamples = 0;
+    
+    // BALANCED adaptive radius - scale with distance but keep reasonable
+    float baseRadius = ssaoParams.radius;
+    float adaptiveRadius = baseRadius * (0.5 + 0.5 * (1.0 - smoothstep(10.0, 80.0, distanceFromCamera)));
+    adaptiveRadius = max(adaptiveRadius, baseRadius * 0.4); // Minimum radius
+    
+    // BALANCED FACE TREATMENT - equal treatment for side faces
+    float xNormalStrength = abs(worldNormal.x);
+    float yNormalStrength = abs(worldNormal.y);
+    float zNormalStrength = abs(worldNormal.z);
+    
+    // No radius modification based on face direction - treat all sides equally
+    // Only slight adjustment for top faces if needed
+    
     for (int i = 0; i < KERNEL_SIZE; ++i)
     {
         // Get sample position in view space
-        vec3 samplePos = TBN * ssaoParams.samples[i].xyz; // Orient sample
-        samplePos = viewPos + samplePos * ssaoParams.radius; // Scale and translate
-
+        vec3 sampleOffset = TBN * ssaoParams.samples[i].xyz;
+        vec3 samplePos = viewPos + sampleOffset * adaptiveRadius;
+        
         // Project sample position to screen space
         vec4 offset = vec4(samplePos, 1.0);
-        offset = ssaoParams.projection * offset;    // To clip space
-        offset.xyz /= offset.w;                     // Perspective divide
-        offset.xyz = offset.xyz * 0.5 + 0.5;       // To [0,1] range
-
-        // Sample depth at this screen position
-        vec3 sampleWorldPos = texture(gPosition, offset.xy).xyz;
-
-        // Skip if we sampled outside the screen or background
-        if (offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0 ||
-            length(sampleWorldPos) < 0.1)
-        {
+        offset = ssaoParams.projection * offset;
+        offset.xyz /= offset.w;
+        offset.xyz = offset.xyz * 0.5 + 0.5;
+        
+        // Skip samples outside screen bounds
+        if (offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0) {
             continue;
         }
-
-        // Transform sampled world position to view space for comparison
+        
+        // Sample the G-buffer at this screen position
+        vec4 sampleData = texture(gPosition, offset.xy);
+        vec3 sampleWorldPos = sampleData.xyz;
+        
+        // Skip if we sampled background
+        if (length(sampleWorldPos) < 0.1) {
+            continue;
+        }
+        
+        // Transform sampled world position to view space
         vec4 sampleViewPos4 = ssaoParams.view * vec4(sampleWorldPos, 1.0);
         float sampleDepth = sampleViewPos4.z;
-
-        // Range check to avoid distant occlusion
-        float rangeCheck = smoothstep(0.0, 1.0, ssaoParams.radius / abs(viewPos.z - sampleDepth));
-
-        // Check if sample is occluded (behind surface)
-        float occluded = (sampleDepth >= samplePos.z + ssaoParams.bias) ? 1.0 : 0.0;
-        occlusion += occluded * rangeCheck;
+        
+        // Improved occlusion test
+        float depthDifference = sampleDepth - samplePos.z;
+        
+        // Range check - prevent distant occlusion
+        float maxRange = adaptiveRadius * 2.0;
+        float rangeCheck = 1.0 - smoothstep(0.0, maxRange, abs(viewPos.z - sampleDepth));
+        
+        // Check for occlusion
+        if (depthDifference > ssaoParams.bias && depthDifference < maxRange) {
+            occlusion += rangeCheck;
+        }
+        
+        validSamples++;
     }
-
-    // Normalize and invert occlusion (1.0 = no occlusion, 0.0 = full occlusion)
-    occlusion = 1.0 - (occlusion / KERNEL_SIZE);
-
+    
+    // Normalize occlusion
+    if (validSamples > 0) {
+        occlusion = occlusion / float(validSamples);
+    }
+    
+    // Invert occlusion
+    occlusion = 1.0 - occlusion;
+    
+    // BALANCED FACE-BASED SSAO STRENGTH
+    float ssaoStrength = 1.0;
+    
+    // SPECIAL HANDLING FOR TOP FACES (Y-faces)
+    // Top faces should have less SSAO since they receive more ambient light
+    if (yNormalStrength > 0.8 && worldNormal.y > 0.0) { // Only top faces, not bottom
+        ssaoStrength = 0.3; // Significantly reduce SSAO on top faces
+    }
+    // ALL SIDE FACES get equal treatment (X and Z faces)
+    else if (xNormalStrength > 0.7 || zNormalStrength > 0.7) {
+        ssaoStrength = 0.8; // Same strength for all side faces
+    }
+    // Bottom faces (floor) can have stronger SSAO
+    else if (yNormalStrength > 0.8 && worldNormal.y < 0.0) { // Bottom faces
+        ssaoStrength = 1.0; // Full SSAO on bottom faces
+    }
+    
+    // Apply distance fade to SSAO strength
+    ssaoStrength *= distanceFade;
+    
+    // Apply mild contrast
+    occlusion = pow(occlusion, 1.1);
+    occlusion = clamp(occlusion, 0.4, 1.0); // Prevent too dark areas
+    
+    // Mix SSAO effect based on strength
+    occlusion = mix(1.0, occlusion, ssaoStrength);
+    
     // Apply SSAO to albedo
     vec3 finalColor = albedo * occlusion;
-
+    
     outColor = vec4(finalColor, 1.0);
 }

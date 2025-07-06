@@ -2130,26 +2130,21 @@ void VulkanRenderer::createSSAOUniformBuffers()
 
 void VulkanRenderer::createNoiseTexture()
 {
-    // Generate 4x4 noise texture
-    std::vector<glm::vec3> noiseData(16);
+    // Use 16x16 noise texture instead of 4x4 to reduce tiling artifacts
+    const int noiseSize = 32;
+    std::vector<glm::vec3> noiseData(noiseSize * noiseSize);
+
     std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(42069);
     std::uniform_real_distribution<float> dis(-1.0f, 1.0f);
 
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < noiseSize * noiseSize; i++)
     {
         glm::vec3 randomVec(dis(gen), dis(gen), 0.0f);
         noiseData[i] = glm::normalize(randomVec);
-
-        // Debug: Print first few values
-        if (i < 4)
-        {
-            std::cout << "[DEBUG] Noise[" << i << "]: "
-                << noiseData[i].x << ", " << noiseData[i].y << ", " << noiseData[i].z << std::endl;
-        }
     }
 
-    VkDeviceSize imageSize = 4 * 4 * 3 * sizeof(float);
+    VkDeviceSize imageSize = noiseSize * noiseSize * 3 * sizeof(float);
 
     // Create staging buffer
     VkBuffer stagingBuffer;
@@ -2164,15 +2159,15 @@ void VulkanRenderer::createNoiseTexture()
     vkUnmapMemory(device, stagingBufferMemory);
 
     // Create noise image
-    createImage(4, 4, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+    createImage(noiseSize, noiseSize, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, noiseImage, noiseImageMemory);
 
-    // Transition image layout and copy data
+    // Transition and copy
     transitionImageLayout(noiseImage, VK_FORMAT_R32G32B32_SFLOAT,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    copyBufferToImage(stagingBuffer, noiseImage, 4, 4);
+    copyBufferToImage(stagingBuffer, noiseImage, noiseSize, noiseSize);
 
     transitionImageLayout(noiseImage, VK_FORMAT_R32G32B32_SFLOAT,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -2180,15 +2175,16 @@ void VulkanRenderer::createNoiseTexture()
     // Create image view
     noiseImageView = createImageView(noiseImage, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
 
-    // Create noise sampler
+    // Create noise sampler with linear filtering to smooth noise transitions
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_NEAREST;
-    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;  // Changed from NEAREST to LINEAR
+    samplerInfo.minFilter = VK_FILTER_LINEAR;  // This will reduce flickering
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.anisotropyEnable = VK_FALSE;
+    samplerInfo.anisotropyEnable = VK_TRUE;
+    samplerInfo.maxAnisotropy = 4.0f;
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.compareEnable = VK_FALSE;
@@ -2206,13 +2202,13 @@ void VulkanRenderer::createNoiseTexture()
     vkDestroyBuffer(device, stagingBuffer, nullptr);
     vkFreeMemory(device, stagingBufferMemory, nullptr);
 
-    std::cout << "[DEBUG] Noise texture created successfully (4x4 with " << noiseData.size() << " values)" << std::endl;
+    std::cout << "[DEBUG] Improved noise texture created (" << noiseSize << "x" << noiseSize << ")" << std::endl;
 }
 
 void VulkanRenderer::generateSSAOKernel(SSAOParams& params)
 {
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    // Use fixed seed for consistent results
+    std::mt19937 gen(42);
     std::uniform_real_distribution<float> dis(0.0f, 1.0f);
 
     for (int i = 0; i < 64; ++i)
@@ -2224,17 +2220,30 @@ void VulkanRenderer::generateSSAOKernel(SSAOParams& params)
         );
 
         sample = glm::normalize(sample);
-        sample *= dis(gen); // Random length [0, 1]
 
-        // Scale samples towards origin
+        // Better length distribution - more balanced
         float scale = float(i) / 64.0f;
-        scale = 0.1f + scale * scale * (1.0f - 0.1f);
+
+        // Create more samples at medium distances (not just close to origin)
+        if (i < 16)
+        {
+            scale = 0.1f + scale * 0.3f; // Close samples
+        }
+        else if (i < 48)
+        {
+            scale = 0.4f + scale * 0.4f; // Medium samples
+        }
+        else
+        {
+            scale = 0.8f + scale * 0.2f; // Far samples
+        }
+
         sample *= scale;
 
         params.samples[i] = glm::vec4(sample, 0.0f);
     }
 
-    std::cout << "[DEBUG] SSAO kernel generated with 64 samples" << std::endl;
+    std::cout << "[DEBUG] Balanced SSAO kernel generated with improved distribution" << std::endl;
 }
 
 void VulkanRenderer::createSSAODescriptorSets()
@@ -2340,21 +2349,16 @@ void VulkanRenderer::updateSSAOUniforms(const Camera& camera, float aspectRatio)
         glm::radians(80.0f), aspectRatio, 0.1f, 1000.0f);
     ssaoParams.projection[1][1] *= -1; // Flip Y for Vulkan
 
-    // SSAO parameters
+    // IMPROVED SSAO parameters
     ssaoParams.screenSize = glm::vec2(swapChainExtent.width, swapChainExtent.height);
-    ssaoParams.radius = 2.0f;      // Increased for more visible effect
-    ssaoParams.bias = 0.025f;      // Depth bias
+    ssaoParams.radius = 1.8f;      // Reduced from 2.0f - was too large
+    ssaoParams.bias = 0.06f;       // Increased from 0.025f - reduces self-occlusion
 
     // Generate sample kernel
     generateSSAOKernel(ssaoParams);
 
     // Copy to uniform buffer
     memcpy(ssaoUniformBuffersMapped[currentFrame], &ssaoParams, sizeof(ssaoParams));
-
-    // Debug output
-    std::cout << "[DEBUG] SSAO uniforms updated - Screen: "
-        << ssaoParams.screenSize.x << "x" << ssaoParams.screenSize.y
-        << ", Radius: " << ssaoParams.radius << std::endl;
 }
 
 void VulkanRenderer::cleanupSSAO()
