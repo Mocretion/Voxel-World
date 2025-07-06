@@ -220,6 +220,10 @@ private:
     void createSSAOUniformBuffers();
     void createNoiseTexture();
     void cleanupSSAO();
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
     void generateSSAOKernel(SSAOParams& params);
     void createSSAODescriptorSets();
     void recreateGraphicsPipeline();
