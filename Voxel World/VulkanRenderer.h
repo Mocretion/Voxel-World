@@ -63,6 +63,24 @@ private:
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
 
+    // NEW: G-buffer (Geometry Buffer) for SSAO
+    struct GBuffer {
+        // Position buffer (RGB = world position, A = unused)
+        VkImage positionImage = VK_NULL_HANDLE;
+        VkDeviceMemory positionImageMemory = VK_NULL_HANDLE;
+        VkImageView positionImageView = VK_NULL_HANDLE;
+
+        // Normal buffer (RGB = world normal, A = unused)
+        VkImage normalImage = VK_NULL_HANDLE;
+        VkDeviceMemory normalImageMemory = VK_NULL_HANDLE;
+        VkImageView normalImageView = VK_NULL_HANDLE;
+
+        // Albedo/Color buffer (RGB = color, A = unused)
+        VkImage albedoImage = VK_NULL_HANDLE;
+        VkDeviceMemory albedoImageMemory = VK_NULL_HANDLE;
+        VkImageView albedoImageView = VK_NULL_HANDLE;
+    } gBuffer;
+
     // Swap chain
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
     std::vector<VkImage> swapChainImages;
@@ -71,8 +89,12 @@ private:
     std::vector<VkImageView> swapChainImageViews;
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
+    // NEW: G-buffer framebuffers (separate from swap chain framebuffers)
+    std::vector<VkFramebuffer> gBufferFramebuffers;
+
     // Rendering pipeline
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkRenderPass gBufferRenderPass = VK_NULL_HANDLE;  // NEW: Separate render pass for G-buffer
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
@@ -137,9 +159,12 @@ private:
     void createSwapChain();
     void createImageViews();
     void createRenderPass();
+    void createGBufferRenderPass();  // NEW: Create G-buffer render pass
     void createDescriptorSetLayout();
     void createGraphicsPipeline();
     void createFramebuffers();
+    void createGBufferResources();   // NEW: Create G-buffer images and views
+    void createGBufferFramebuffers(); // NEW: Create G-buffer framebuffers
     void createCommandPool();
     void createVertexBuffer();
     void createIndexBuffer();
@@ -172,6 +197,20 @@ private:
 
     void recreateSwapChain();
     void cleanupSwapChain();
+    void cleanupGBuffer();           // NEW: Cleanup G-buffer resources
+    void createCopyDescriptorSetLayout();
+    void createCopyPipeline();
+    void createGBufferSampler();
+    void createCopyDescriptorSets();
     void recreateGraphicsPipeline();
     bool isWindowMinimized() const;
+
+    VkPipeline copyPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout copyPipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout copyDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool copyDescriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> copyDescriptorSets;
+
+    // Samplers for G-buffer textures
+    VkSampler gBufferSampler = VK_NULL_HANDLE;
 };
