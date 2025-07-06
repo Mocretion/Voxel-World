@@ -96,6 +96,12 @@
     <None Include="copy_vertex.vert">
       <Filter>Source Files\shaders</Filter>
     </None>
+    <None Include="ssao_vertex.vert">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="ssao_fragment.frag">
+      <Filter>Source Files\shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Vertex.h">

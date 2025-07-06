@@ -9,6 +9,9 @@ glslangValidator -V fragment.frag -o shaders/frag.spv
 glslangValidator -V copy_vertex.vert -o shaders/copy_vert.spv
 glslangValidator -V copy_fragment.frag -o shaders/copy_frag.spv
 
+glslangValidator -V ssao_vertex.vert -o shaders/ssao_vert.spv
+glslangValidator -V ssao_fragment.frag -o shaders/ssao_frag.spv
+
 if %errorlevel% neq 0 (
     echo Shader compilation failed!
     pause

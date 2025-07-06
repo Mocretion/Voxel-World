@@ -10,6 +10,7 @@
 #include <set>
 
 #include "Vertex.h"
+#include "Camera.h"
 
 class VulkanRenderer {
 public:
@@ -41,6 +42,8 @@ public:
     // Get current frame dimensions
     uint32_t getFrameWidth() const { return swapChainExtent.width; }
     uint32_t getFrameHeight() const { return swapChainExtent.height; }
+
+    void updateSSAOUniforms(const Camera& camera, float aspectRatio);
 
 private:
     // Window settings
@@ -80,6 +83,16 @@ private:
         VkDeviceMemory albedoImageMemory = VK_NULL_HANDLE;
         VkImageView albedoImageView = VK_NULL_HANDLE;
     } gBuffer;
+
+    struct SSAOParams {
+        glm::mat4 projection;
+        glm::mat4 view;
+        glm::vec4 samples[64];   // Sample kernel
+        glm::vec2 screenSize;
+        float radius;
+        float bias;
+        float padding[2];        // Align to 16 bytes
+    };
 
     // Swap chain
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
@@ -202,6 +215,13 @@ private:
     void createCopyPipeline();
     void createGBufferSampler();
     void createCopyDescriptorSets();
+    void createSSAODescriptorSetLayout();
+    void createSSAOPipeline();
+    void createSSAOUniformBuffers();
+    void createNoiseTexture();
+    void cleanupSSAO();
+    void generateSSAOKernel(SSAOParams& params);
+    void createSSAODescriptorSets();
     void recreateGraphicsPipeline();
     bool isWindowMinimized() const;
 
@@ -213,4 +233,20 @@ private:
 
     // Samplers for G-buffer textures
     VkSampler gBufferSampler = VK_NULL_HANDLE;
+
+    VkPipeline ssaoPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout ssaoPipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout ssaoDescriptorSetLayout = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> ssaoDescriptorSets;
+
+    // SSAO uniform buffer
+    std::vector<VkBuffer> ssaoUniformBuffers;
+    std::vector<VkDeviceMemory> ssaoUniformBuffersMemory;
+    std::vector<void*> ssaoUniformBuffersMapped;
+
+    // Noise texture for SSAO
+    VkImage noiseImage = VK_NULL_HANDLE;
+    VkDeviceMemory noiseImageMemory = VK_NULL_HANDLE;
+    VkImageView noiseImageView = VK_NULL_HANDLE;
+    VkSampler noiseSampler = VK_NULL_HANDLE;
 };

@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <set>
+#include <random>
 
 VulkanRenderer::VulkanRenderer()
 {
@@ -39,16 +40,19 @@ void VulkanRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32
     // Descriptor layouts (both regular and copy shader)
     createDescriptorSetLayout();     // For 3D scene rendering
     createCopyDescriptorSetLayout(); // ADD THIS - For copy shaders
+    createSSAODescriptorSetLayout();
 
     // Graphics pipelines (both 3D and copy)
     createGraphicsPipeline();        // For 3D scene rendering  
     createCopyPipeline();           // ADD THIS - For copy shaders
+    createSSAOPipeline();
 
     // Command and memory resources
     createCommandPool();
     createDepthResources();
     createGBufferResources();       // G-buffer textures
     createGBufferSampler();         // ADD THIS - Sampler for G-buffer textures
+    createNoiseTexture();
 
     // Framebuffers
     createFramebuffers();           // Regular swap chain framebuffers
@@ -56,9 +60,11 @@ void VulkanRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32
 
     // Uniform buffers and descriptors
     createUniformBuffers();
+    createSSAOUniformBuffers();
     createDescriptorPool();         // This needs to be big enough for both pipelines!
     createDescriptorSets();         // Regular 3D scene descriptors
     createCopyDescriptorSets();     // ADD THIS - Copy shader descriptors
+    createSSAODescriptorSets();
 
     // Commands and synchronization
     createCommandBuffers();
@@ -209,6 +215,7 @@ void VulkanRenderer::cleanup()
 
         cleanupSwapChain();
         cleanupGBuffer();
+        cleanupSSAO();
 
         // Cleanup buffers
         if (vertexBuffer != VK_NULL_HANDLE)
@@ -968,24 +975,22 @@ void VulkanRenderer::createDescriptorPool()
 
     // Uniform buffers for 3D rendering
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // 3D + SSAO
 
     // Image samplers for copy shaders (3 G-buffer textures per frame)
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 3); // 3 textures per frame
+    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 7); // 3 G-buffer + 1 noise + 3 G-buffer again
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // 2 sets per frame (3D + copy)
+    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 3); // 3D + copy + SSAO
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create descriptor pool!");
     }
-
-    std::cout << "Descriptor pool created for both 3D and copy pipelines!" << std::endl;
 }
 
 void VulkanRenderer::createDescriptorSets()
@@ -1119,32 +1124,28 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
 
     vkCmdEndRenderPass(commandBuffer);
 
-    // SECOND PASS: Copy G-buffer albedo to swap chain for display
-    // For now, we'll just copy the albedo buffer to the screen
-    // Later you'll replace this with a full-screen quad that does SSAO + lighting
+    // SECOND PASS: Apply SSAO and render to screen
+    VkRenderPassBeginInfo screenRenderPassInfo{};
+    screenRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    screenRenderPassInfo.renderPass = renderPass;
+    screenRenderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
+    screenRenderPassInfo.renderArea.offset = { 0, 0 };
+    screenRenderPassInfo.renderArea.extent = swapChainExtent;
 
-    VkRenderPassBeginInfo swapChainRenderPassInfo{};
-    swapChainRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    swapChainRenderPassInfo.renderPass = renderPass;
-    swapChainRenderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
-    swapChainRenderPassInfo.renderArea.offset = { 0, 0 };
-    swapChainRenderPassInfo.renderArea.extent = swapChainExtent;
+    VkClearValue screenClearValue{};
+    screenClearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+    screenRenderPassInfo.clearValueCount = 1;
+    screenRenderPassInfo.pClearValues = &screenClearValue;
 
-    VkClearValue swapChainClearValue{};
-    swapChainClearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+    vkCmdBeginRenderPass(commandBuffer, &screenRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    swapChainRenderPassInfo.clearValueCount = 1;
-    swapChainRenderPassInfo.pClearValues = &swapChainClearValue;
+    std::cout << "[DEBUG] Using SSAO pipeline for frame " << currentFrame << std::endl;
 
-    vkCmdBeginRenderPass(commandBuffer, &swapChainRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Bind copy pipeline and render fullscreen triangle
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, copyPipeline);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, copyPipelineLayout,
-        0, 1, &copyDescriptorSets[currentFrame], 0, nullptr);
-
-    // Draw fullscreen triangle (no vertex buffer needed!)
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    // Bind SSAO pipeline and render fullscreen triangle
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ssaoPipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ssaoPipelineLayout,
+        0, 1, &ssaoDescriptorSets[currentFrame], 0, nullptr);
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0); // Draw fullscreen triangle
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -1379,6 +1380,7 @@ void VulkanRenderer::recreateSwapChain()
     createImageViews();
     createDepthResources();
     createGBufferResources();
+    createNoiseTexture();
     createFramebuffers();
     createGBufferFramebuffers();
 
@@ -1388,6 +1390,7 @@ void VulkanRenderer::recreateSwapChain()
 void VulkanRenderer::cleanupSwapChain()
 {
     cleanupGBuffer();
+    cleanupSSAO();
 
     if (gBufferSampler != VK_NULL_HANDLE)
     {
@@ -1940,4 +1943,454 @@ void VulkanRenderer::createCopyDescriptorSets()
     }
 
     std::cout << "Copy descriptor sets created and configured!" << std::endl;
+}
+
+void VulkanRenderer::createSSAODescriptorSetLayout()
+{
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+
+    // SSAO parameters uniform buffer (binding 0)
+    bindings[0].binding = 0;
+    bindings[0].descriptorCount = 1;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].pImmutableSamplers = nullptr;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    // G-buffer textures (bindings 1, 2, 3)
+    bindings[1].binding = 1;
+    bindings[1].descriptorCount = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].pImmutableSamplers = nullptr;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[2].binding = 2;
+    bindings[2].descriptorCount = 1;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].pImmutableSamplers = nullptr;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[3].binding = 3;
+    bindings[3].descriptorCount = 1;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[3].pImmutableSamplers = nullptr;
+    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    // Noise texture (binding 4)
+    bindings[4].binding = 4;
+    bindings[4].descriptorCount = 1;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].pImmutableSamplers = nullptr;
+    bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &ssaoDescriptorSetLayout) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create SSAO descriptor set layout!");
+    }
+}
+
+void VulkanRenderer::createSSAOPipeline()
+{
+    auto vertShaderCode = ResourceManager::readFile(ResourceManager::getShaderPath("ssao_vert.spv"));
+    auto fragShaderCode = ResourceManager::readFile(ResourceManager::getShaderPath("ssao_frag.spv"));
+
+    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = vertShaderModule;
+    vertShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = fragShaderModule;
+    fragShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+    // No vertex input (fullscreen triangle)
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = (float)swapChainExtent.width;
+    viewport.height = (float)swapChainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = { 0, 0 };
+    scissor.extent = swapChainExtent;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports = &viewport;
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &ssaoDescriptorSetLayout;
+
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &ssaoPipelineLayout) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create SSAO pipeline layout!");
+    }
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.layout = ssaoPipelineLayout;
+    pipelineInfo.renderPass = renderPass; // Render to screen
+    pipelineInfo.subpass = 0;
+
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &ssaoPipeline) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create SSAO graphics pipeline!");
+    }
+
+    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+
+    std::cout << "SSAO pipeline created successfully!" << std::endl;
+}
+
+void VulkanRenderer::createSSAOUniformBuffers()
+{
+    VkDeviceSize bufferSize = sizeof(SSAOParams);
+
+    ssaoUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+    ssaoUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+    ssaoUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            ssaoUniformBuffers[i], ssaoUniformBuffersMemory[i]);
+
+        vkMapMemory(device, ssaoUniformBuffersMemory[i], 0, bufferSize, 0, &ssaoUniformBuffersMapped[i]);
+    }
+}
+
+void VulkanRenderer::createNoiseTexture()
+{
+    // Generate 4x4 noise texture
+    std::vector<glm::vec3> noiseData(16);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(-1.0f, 1.0f);
+
+    for (int i = 0; i < 16; i++)
+    {
+        noiseData[i] = glm::normalize(glm::vec3(
+            dis(gen),   // Random X
+            dis(gen),   // Random Y  
+            0.0f        // Z = 0 (rotate around z-axis)
+        ));
+    }
+
+    VkDeviceSize imageSize = 4 * 4 * 3 * sizeof(float);
+
+    // Create staging buffer
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        stagingBuffer, stagingBufferMemory);
+
+    void* data;
+    vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+    memcpy(data, noiseData.data(), static_cast<size_t>(imageSize));
+    vkUnmapMemory(device, stagingBufferMemory);
+
+    // Create noise image
+    createImage(4, 4, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, noiseImage, noiseImageMemory);
+
+    // TODO: Copy staging buffer to image (need image layout transitions)
+    // For now, we'll create a simple transition
+
+    noiseImageView = createImageView(noiseImage, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // Create noise sampler
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.anisotropyEnable = VK_FALSE;
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    samplerInfo.unnormalizedCoordinates = VK_FALSE;
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &noiseSampler) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create noise sampler!");
+    }
+
+    // Cleanup staging buffer
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+    std::cout << "[DEBUG] Noise texture created (4x4)" << std::endl;
+}
+
+void VulkanRenderer::generateSSAOKernel(SSAOParams& params)
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(0.0f, 1.0f);
+
+    for (int i = 0; i < 64; ++i)
+    {
+        glm::vec3 sample(
+            dis(gen) * 2.0f - 1.0f,  // Random X [-1, 1]
+            dis(gen) * 2.0f - 1.0f,  // Random Y [-1, 1]
+            dis(gen)                 // Random Z [0, 1] (hemisphere)
+        );
+
+        sample = glm::normalize(sample);
+        sample *= dis(gen); // Random length [0, 1]
+
+        // Scale samples towards origin
+        float scale = float(i) / 64.0f;
+        scale = 0.1f + scale * scale * (1.0f - 0.1f);
+        sample *= scale;
+
+        params.samples[i] = glm::vec4(sample, 0.0f);
+    }
+
+    std::cout << "[DEBUG] SSAO kernel generated with 64 samples" << std::endl;
+}
+
+void VulkanRenderer::createSSAODescriptorSets()
+{
+    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, ssaoDescriptorSetLayout);
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = descriptorPool;
+    allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    allocInfo.pSetLayouts = layouts.data();
+
+    ssaoDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+    if (vkAllocateDescriptorSets(device, &allocInfo, ssaoDescriptorSets.data()) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to allocate SSAO descriptor sets!");
+    }
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        std::array<VkWriteDescriptorSet, 5> descriptorWrites{};
+
+        // SSAO uniform buffer (binding 0)
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = ssaoUniformBuffers[i];
+        bufferInfo.offset = 0;
+        bufferInfo.range = sizeof(SSAOParams);
+
+        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[0].dstSet = ssaoDescriptorSets[i];
+        descriptorWrites[0].dstBinding = 0;
+        descriptorWrites[0].dstArrayElement = 0;
+        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrites[0].descriptorCount = 1;
+        descriptorWrites[0].pBufferInfo = &bufferInfo;
+
+        // G-buffer textures (bindings 1, 2, 3)
+        VkDescriptorImageInfo positionImageInfo{};
+        positionImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        positionImageInfo.imageView = gBuffer.positionImageView;
+        positionImageInfo.sampler = gBufferSampler;
+
+        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[1].dstSet = ssaoDescriptorSets[i];
+        descriptorWrites[1].dstBinding = 1;
+        descriptorWrites[1].dstArrayElement = 0;
+        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[1].descriptorCount = 1;
+        descriptorWrites[1].pImageInfo = &positionImageInfo;
+
+        VkDescriptorImageInfo normalImageInfo{};
+        normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        normalImageInfo.imageView = gBuffer.normalImageView;
+        normalImageInfo.sampler = gBufferSampler;
+
+        descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[2].dstSet = ssaoDescriptorSets[i];
+        descriptorWrites[2].dstBinding = 2;
+        descriptorWrites[2].dstArrayElement = 0;
+        descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[2].descriptorCount = 1;
+        descriptorWrites[2].pImageInfo = &normalImageInfo;
+
+        VkDescriptorImageInfo albedoImageInfo{};
+        albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        albedoImageInfo.imageView = gBuffer.albedoImageView;
+        albedoImageInfo.sampler = gBufferSampler;
+
+        descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[3].dstSet = ssaoDescriptorSets[i];
+        descriptorWrites[3].dstBinding = 3;
+        descriptorWrites[3].dstArrayElement = 0;
+        descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[3].descriptorCount = 1;
+        descriptorWrites[3].pImageInfo = &albedoImageInfo;
+
+        // Noise texture (binding 4)
+        VkDescriptorImageInfo noiseImageInfo{};
+        noiseImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        noiseImageInfo.imageView = noiseImageView;
+        noiseImageInfo.sampler = noiseSampler;
+
+        descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[4].dstSet = ssaoDescriptorSets[i];
+        descriptorWrites[4].dstBinding = 4;
+        descriptorWrites[4].dstArrayElement = 0;
+        descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[4].descriptorCount = 1;
+        descriptorWrites[4].pImageInfo = &noiseImageInfo;
+
+        vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()),
+            descriptorWrites.data(), 0, nullptr);
+    }
+}
+
+void VulkanRenderer::updateSSAOUniforms(const Camera& camera, float aspectRatio)
+{
+    SSAOParams ssaoParams{};
+
+    // Camera matrices
+    ssaoParams.view = camera.getViewMatrix();
+    ssaoParams.projection = glm::perspective(
+        glm::radians(80.0f), aspectRatio, 0.1f, 1000.0f);
+    ssaoParams.projection[1][1] *= -1; // Flip Y for Vulkan
+
+    // SSAO parameters
+    ssaoParams.screenSize = glm::vec2(swapChainExtent.width, swapChainExtent.height);
+    ssaoParams.radius = 2.0f;      // Increased for more visible effect
+    ssaoParams.bias = 0.025f;      // Depth bias
+
+    // Generate sample kernel
+    generateSSAOKernel(ssaoParams);
+
+    // Copy to uniform buffer
+    memcpy(ssaoUniformBuffersMapped[currentFrame], &ssaoParams, sizeof(ssaoParams));
+
+    // Debug output
+    std::cout << "[DEBUG] SSAO uniforms updated - Screen: "
+        << ssaoParams.screenSize.x << "x" << ssaoParams.screenSize.y
+        << ", Radius: " << ssaoParams.radius << std::endl;
+}
+
+void VulkanRenderer::cleanupSSAO()
+{
+    // Cleanup SSAO uniform buffers
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        if (ssaoUniformBuffers[i] != VK_NULL_HANDLE)
+        {
+            vkDestroyBuffer(device, ssaoUniformBuffers[i], nullptr);
+            vkFreeMemory(device, ssaoUniformBuffersMemory[i], nullptr);
+        }
+    }
+
+    // Cleanup noise texture
+    if (noiseImageView != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(device, noiseImageView, nullptr);
+        noiseImageView = VK_NULL_HANDLE;
+    }
+    if (noiseImage != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(device, noiseImage, nullptr);
+        noiseImage = VK_NULL_HANDLE;
+    }
+    if (noiseImageMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device, noiseImageMemory, nullptr);
+        noiseImageMemory = VK_NULL_HANDLE;
+    }
+    if (noiseSampler != VK_NULL_HANDLE)
+    {
+        vkDestroySampler(device, noiseSampler, nullptr);
+        noiseSampler = VK_NULL_HANDLE;
+    }
+
+    // Cleanup SSAO pipeline
+    if (ssaoPipeline != VK_NULL_HANDLE)
+    {
+        vkDestroyPipeline(device, ssaoPipeline, nullptr);
+        ssaoPipeline = VK_NULL_HANDLE;
+    }
+    if (ssaoPipelineLayout != VK_NULL_HANDLE)
+    {
+        vkDestroyPipelineLayout(device, ssaoPipelineLayout, nullptr);
+        ssaoPipelineLayout = VK_NULL_HANDLE;
+    }
+    if (ssaoDescriptorSetLayout != VK_NULL_HANDLE)
+    {
+        vkDestroyDescriptorSetLayout(device, ssaoDescriptorSetLayout, nullptr);
+        ssaoDescriptorSetLayout = VK_NULL_HANDLE;
+    }
 }

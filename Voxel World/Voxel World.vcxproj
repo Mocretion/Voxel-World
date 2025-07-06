@@ -147,6 +147,8 @@
     <None Include="copy_fragment.frag" />
     <None Include="copy_vertex.vert" />
     <None Include="fragment.frag" />
+    <None Include="ssao_fragment.frag" />
+    <None Include="ssao_vertex.vert" />
     <None Include="vertex.vert" />
   </ItemGroup>
   <ItemGroup>

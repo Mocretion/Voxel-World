@@ -15,6 +15,6 @@ call compile_shaders.bat
 
 cd "D:\VS C# Projects\Voxel World\Voxel World\build\Debug"
 mkdir "shaders"
-xcopy /s "D:\VS C# Projects\Voxel World\Voxel World\shaders" "D:\VS C# Projects\Voxel World\Voxel World\build\Debug\shaders" -yes
+xcopy /s "D:\VS C# Projects\Voxel World\Voxel World\shaders" "D:\VS C# Projects\Voxel World\Voxel World\build\Debug\shaders" /y
 VoxelWorld.exe
 pause
