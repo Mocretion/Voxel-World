@@ -23,9 +23,9 @@ void main()
 
     // Output 3: Albedo/Color buffer
     // Apply simple directional lighting to the base color
-    vec3 lightDir = normalize(vec3(0.5, 1.0, 0.5));  // Light direction
+    vec3 lightDir = normalize(vec3(0.5, 0.5, 0.5));  // Light direction
     vec3 normal = normalize(fragNormal);              // World normal
-    float lightIntensity = max(dot(normal, lightDir), 0.3);  // Diffuse + ambient
+    float lightIntensity = max(dot(normal, lightDir), 0.4);  // Diffuse + ambient
 
     vec3 litColor = fragColor * lightIntensity;
     gAlbedo = vec4(litColor, 1.0);

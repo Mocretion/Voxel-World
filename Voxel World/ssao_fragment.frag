@@ -140,29 +140,13 @@ void main()
     // BALANCED FACE-BASED SSAO STRENGTH
     float ssaoStrength = 1.0;
     
-    // SPECIAL HANDLING FOR TOP FACES (Y-faces)
-    // Top faces should have less SSAO since they receive more ambient light
-    if (yNormalStrength > 0.8 && worldNormal.y > 0.0) { // Only top faces, not bottom
-        ssaoStrength = 0.3; // Significantly reduce SSAO on top faces
-    }
-    // ALL SIDE FACES get equal treatment (X and Z faces)
-    else if (xNormalStrength > 0.7 || zNormalStrength > 0.7) {
-        ssaoStrength = 0.8; // Same strength for all side faces
-    }
-    // Bottom faces (floor) can have stronger SSAO
-    else if (yNormalStrength > 0.8 && worldNormal.y < 0.0) { // Bottom faces
-        ssaoStrength = 1.0; // Full SSAO on bottom faces
-    }
-    
-    // Apply distance fade to SSAO strength
-    ssaoStrength *= distanceFade;
-    
+       
     // Apply mild contrast
     occlusion = pow(occlusion, 1.1);
     occlusion = clamp(occlusion, 0.4, 1.0); // Prevent too dark areas
     
     // Mix SSAO effect based on strength
-    occlusion = mix(1.0, occlusion, ssaoStrength);
+    occlusion = mix(1.0, occlusion, distanceFade);
     
     // Apply SSAO to albedo
     vec3 finalColor = albedo * occlusion;

@@ -1139,8 +1139,6 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
 
     vkCmdBeginRenderPass(commandBuffer, &screenRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    std::cout << "[DEBUG] Using SSAO pipeline for frame " << currentFrame << std::endl;
-
     // Bind SSAO pipeline and render fullscreen triangle
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ssaoPipeline);
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ssaoPipelineLayout,
@@ -2131,17 +2129,30 @@ void VulkanRenderer::createSSAOUniformBuffers()
 void VulkanRenderer::createNoiseTexture()
 {
     // Use 16x16 noise texture instead of 4x4 to reduce tiling artifacts
-    const int noiseSize = 32;
+    const int noiseSize = 64;
     std::vector<glm::vec3> noiseData(noiseSize * noiseSize);
 
     std::random_device rd;
-    std::mt19937 gen(42069);
+    std::mt19937 gen(42);
     std::uniform_real_distribution<float> dis(-1.0f, 1.0f);
 
-    for (int i = 0; i < noiseSize * noiseSize; i++)
+    for (int y = 0; y < noiseSize; y++)
     {
-        glm::vec3 randomVec(dis(gen), dis(gen), 0.0f);
-        noiseData[i] = glm::normalize(randomVec);
+        for (int x = 0; x < noiseSize; x++)
+        {
+            int i = y * noiseSize + x;
+
+            // Generate smoother noise using multiple octaves
+            float fx = float(x) / float(noiseSize);
+            float fy = float(y) / float(noiseSize);
+
+            // Multi-octave noise for smoother pattern
+            glm::vec3 noise1(dis(gen), dis(gen), 0.0f);
+            glm::vec3 noise2(dis(gen), dis(gen), 0.0f);
+
+            glm::vec3 finalNoise = glm::normalize(noise1 * 0.7f + noise2 * 0.3f);
+            noiseData[i] = finalNoise;
+        }
     }
 
     VkDeviceSize imageSize = noiseSize * noiseSize * 3 * sizeof(float);
@@ -2184,7 +2195,7 @@ void VulkanRenderer::createNoiseTexture()
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.anisotropyEnable = VK_TRUE;
-    samplerInfo.maxAnisotropy = 4.0f;
+    samplerInfo.maxAnisotropy = 8.0f;
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.compareEnable = VK_FALSE;
@@ -2208,6 +2219,7 @@ void VulkanRenderer::createNoiseTexture()
 void VulkanRenderer::generateSSAOKernel(SSAOParams& params)
 {
     // Use fixed seed for consistent results
+    std::random_device rd;
     std::mt19937 gen(42);
     std::uniform_real_distribution<float> dis(0.0f, 1.0f);
 
@@ -2242,8 +2254,6 @@ void VulkanRenderer::generateSSAOKernel(SSAOParams& params)
 
         params.samples[i] = glm::vec4(sample, 0.0f);
     }
-
-    std::cout << "[DEBUG] Balanced SSAO kernel generated with improved distribution" << std::endl;
 }
 
 void VulkanRenderer::createSSAODescriptorSets()
@@ -2351,8 +2361,8 @@ void VulkanRenderer::updateSSAOUniforms(const Camera& camera, float aspectRatio)
 
     // IMPROVED SSAO parameters
     ssaoParams.screenSize = glm::vec2(swapChainExtent.width, swapChainExtent.height);
-    ssaoParams.radius = 1.8f;      // Reduced from 2.0f - was too large
-    ssaoParams.bias = 0.06f;       // Increased from 0.025f - reduces self-occlusion
+    ssaoParams.radius = 1.2f;      // Reduced from 2.0f - was too large
+    ssaoParams.bias = 0.08f;       // Increased from 0.025f - reduces self-occlusion
 
     // Generate sample kernel
     generateSSAOKernel(ssaoParams);
