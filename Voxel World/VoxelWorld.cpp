@@ -20,17 +20,9 @@ void VoxelWorld::run()
 {
     std::cout << "Starting Voxel World application..." << std::endl;
 
-    try
-    {
-        initWindow();
-        initComponents();
-        mainLoop();
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << "Application error: " << e.what() << std::endl;
-        throw;
-    }
+    initWindow();
+    initComponents();
+    mainLoop();
 
     cleanup();
     std::cout << "Application ended successfully!" << std::endl;

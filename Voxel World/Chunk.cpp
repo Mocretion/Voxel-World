@@ -202,9 +202,9 @@ void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager,
 
                 // Create the quad with CORRECT normal direction
                 glm::vec3 normal;
-                if (axis == 0) normal = glm::vec3(-direction, 0, 0);      // X-axis (flip direction)
-                else if (axis == 1) normal = glm::vec3(0, -direction, 0); // Y-axis (flip direction)
-                else normal = glm::vec3(0, 0, direction);                 // Z-axis (keep same)
+                if (axis == 0) normal = glm::vec3(direction, 0, 0);      // X-axis
+                else if (axis == 1) normal = glm::vec3(0, direction, 0); // Y-axis
+                else normal = glm::vec3(0, 0, direction);                // Z-axis
 
                 // Calculate world position of bottom-left corner of the quad
                 float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
@@ -215,7 +215,7 @@ void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager,
                 glm::vec3 position(worldX, worldY, worldZ);
                 if (axis == 0 && direction > 0) position.x += CUBE_SIZE; // Right face
                 if (axis == 1 && direction > 0) position.y += CUBE_SIZE; // Top face
-                if (axis == 2 && direction > 0) position.z += CUBE_SIZE; // Front face
+                if (axis == 2 && direction > 0) position.z += CUBE_SIZE; // Front face       
 
                 quads.emplace_back(position, quadSize, normal, color, axis);
             }
@@ -409,34 +409,34 @@ void Chunk::addQuadToMesh(const Quad& quad)
     {
         if (normal.x > 0) // Right face (+X)
         {
-            v0 = pos + glm::vec3(0, 0, 0);          // bottom-back
-            v1 = pos + glm::vec3(0, 0, size.x);     // bottom-front  
-            v2 = pos + glm::vec3(0, size.y, size.x); // top-front
-            v3 = pos + glm::vec3(0, size.y, 0);     // top-back
-        }
-        else // Left face (-X)
-        {
-            v0 = pos + glm::vec3(0, 0, size.x);     // bottom-front
+            v0 = pos + glm::vec3(0, 0, size.x);     // bottom-front  
             v1 = pos + glm::vec3(0, 0, 0);          // bottom-back
             v2 = pos + glm::vec3(0, size.y, 0);     // top-back
             v3 = pos + glm::vec3(0, size.y, size.x); // top-front
+        }
+        else // Left face (-X)
+        {
+            v0 = pos + glm::vec3(0, 0, 0);          // bottom-back
+            v1 = pos + glm::vec3(0, 0, size.x);     // bottom-front
+            v2 = pos + glm::vec3(0, size.y, size.x); // top-front
+            v3 = pos + glm::vec3(0, size.y, 0);     // top-back
         }
     }
     else if (quad.axis == 1) // Y-axis faces (Bottom/Top - XZ plane)  
     {
         if (normal.y > 0) // Top face (+Y)
         {
-            v0 = pos + glm::vec3(0, 0, 0);          // back-left
-            v1 = pos + glm::vec3(size.x, 0, 0);     // back-right
-            v2 = pos + glm::vec3(size.x, 0, size.y); // front-right
-            v3 = pos + glm::vec3(0, 0, size.y);     // front-left
+            v0 = pos + glm::vec3(size.x, 0, 0);     // back-right
+            v1 = pos + glm::vec3(0, 0, 0);          // back-left
+            v2 = pos + glm::vec3(0, 0, size.y);     // front-left
+            v3 = pos + glm::vec3(size.x, 0, size.y); // front-right
         }
         else // Bottom face (-Y)
         {
-            v0 = pos + glm::vec3(0, 0, size.y);     // front-left
-            v1 = pos + glm::vec3(size.x, 0, size.y); // front-right
-            v2 = pos + glm::vec3(size.x, 0, 0);     // back-right
-            v3 = pos + glm::vec3(0, 0, 0);          // back-left
+            v0 = pos + glm::vec3(size.x, 0, size.y); // front-right
+            v1 = pos + glm::vec3(0, 0, size.y);     // front-left
+            v2 = pos + glm::vec3(0, 0, 0);          // back-left
+            v3 = pos + glm::vec3(size.x, 0, 0);     // back-right
         }
     }
     else // Z-axis faces (Back/Front - XY plane)
@@ -467,5 +467,5 @@ void Chunk::addQuadToMesh(const Quad& quad)
     indices.insert(indices.end(), {
         baseIndex + 0, baseIndex + 1, baseIndex + 2,
         baseIndex + 2, baseIndex + 3, baseIndex + 0
-    });
+        });
 }

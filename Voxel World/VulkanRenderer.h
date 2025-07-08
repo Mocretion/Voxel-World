@@ -7,9 +7,15 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 #include <optional>
-#include <set>
+#include <memory>
 
 #include "Vertex.h"
+#include "Camera.h"
+
+// Forward declarations for shader classes
+class GBufferShader;
+class SSAOShader;
+class CompositeShader;
 
 class VulkanRenderer {
 public:
@@ -18,11 +24,9 @@ public:
 
     // Initialize Vulkan with the given window
     void initialize(SDL_Window* window, uint32_t windowWidth, uint32_t windowHeight);
-
-    // Clean up Vulkan resources
     void cleanup();
 
-    // Begin and end frame rendering
+    // Frame rendering
     bool beginFrame();
     void endFrame();
 
@@ -31,6 +35,7 @@ public:
 
     // Update uniform buffer (for camera matrices)
     void updateUniforms(const UniformBufferObject& ubo);
+    void updateSSAOUniforms(const Camera& camera, float aspectRatio);
 
     // Handle window resize
     void handleResize(uint32_t newWidth, uint32_t newHeight);
@@ -41,6 +46,27 @@ public:
     // Get current frame dimensions
     uint32_t getFrameWidth() const { return swapChainExtent.width; }
     uint32_t getFrameHeight() const { return swapChainExtent.height; }
+
+    // Public interface for shaders
+    VkDevice getDevice() const { return device; }
+    VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
+    VkDescriptorPool getDescriptorPool() const { return descriptorPool; }
+    size_t getMaxFramesInFlight() const { return MAX_FRAMES_IN_FLIGHT; }
+
+    // Helper methods for shaders
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+        VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
+        VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
+        VkImage& image, VkDeviceMemory& imageMemory);
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+    // Command buffer utilities
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
 private:
     // Window settings
@@ -63,19 +89,16 @@ private:
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
 
-    // NEW: G-buffer (Geometry Buffer) for SSAO
+    // G-buffer (Geometry Buffer) for deferred rendering
     struct GBuffer {
-        // Position buffer (RGB = world position, A = unused)
         VkImage positionImage = VK_NULL_HANDLE;
         VkDeviceMemory positionImageMemory = VK_NULL_HANDLE;
         VkImageView positionImageView = VK_NULL_HANDLE;
 
-        // Normal buffer (RGB = world normal, A = unused)
         VkImage normalImage = VK_NULL_HANDLE;
         VkDeviceMemory normalImageMemory = VK_NULL_HANDLE;
         VkImageView normalImageView = VK_NULL_HANDLE;
 
-        // Albedo/Color buffer (RGB = color, A = unused)
         VkImage albedoImage = VK_NULL_HANDLE;
         VkDeviceMemory albedoImageMemory = VK_NULL_HANDLE;
         VkImageView albedoImageView = VK_NULL_HANDLE;
@@ -89,50 +112,44 @@ private:
     std::vector<VkImageView> swapChainImageViews;
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
-    // NEW: G-buffer framebuffers (separate from swap chain framebuffers)
+    // G-buffer framebuffers
     std::vector<VkFramebuffer> gBufferFramebuffers;
 
-    // Rendering pipeline
-    VkRenderPass renderPass = VK_NULL_HANDLE;
-    VkRenderPass gBufferRenderPass = VK_NULL_HANDLE;  // NEW: Separate render pass for G-buffer
-    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+    // Render passes
+    VkRenderPass renderPass = VK_NULL_HANDLE;          // Final screen render pass
+    VkRenderPass gBufferRenderPass = VK_NULL_HANDLE;   // G-buffer render pass
 
-    // Commands
+    // Commands and synchronization
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
-
-    // Synchronization
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
     std::vector<VkFence> imagesInFlight;
     uint32_t currentFrame = 0;
 
-    // Buffers
+    // Descriptor pool (shared by all shaders)
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+
+    // G-buffer sampler
+    VkSampler gBufferSampler = VK_NULL_HANDLE;
+
+    // Vertex/Index buffers
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer indexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
 
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
-
-    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> descriptorSets;
-
     // Current mesh data
     std::vector<Vertex> currentVertices;
     std::vector<uint32_t> currentIndices;
     bool meshDataDirty = false;
-
-    // Current frame data
     uint32_t currentImageIndex = 0;
 
-    // Wireframe mode
-    bool wireframeMode = false;
+    // Shader pipeline instances
+    std::unique_ptr<GBufferShader> gBufferShader;
+    std::unique_ptr<SSAOShader> ssaoShader;
+    std::unique_ptr<CompositeShader> compositeShader;
 
     // Helper structs
     struct QueueFamilyIndices {
@@ -158,22 +175,18 @@ private:
     void createLogicalDevice();
     void createSwapChain();
     void createImageViews();
-    void createRenderPass();
-    void createGBufferRenderPass();  // NEW: Create G-buffer render pass
-    void createDescriptorSetLayout();
-    void createGraphicsPipeline();
-    void createFramebuffers();
-    void createGBufferResources();   // NEW: Create G-buffer images and views
-    void createGBufferFramebuffers(); // NEW: Create G-buffer framebuffers
+    void createRenderPasses();
+    void createGBufferResources();
+    void createGBufferFramebuffers();
     void createCommandPool();
     void createVertexBuffer();
     void createIndexBuffer();
-    void createUniformBuffers();
     void createDescriptorPool();
-    void createDescriptorSets();
     void createCommandBuffers();
     void createSyncObjects();
     void createDepthResources();
+    void createGBufferSampler();
+    void initializeShaders();
 
     // Helper methods
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
@@ -182,35 +195,20 @@ private:
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
-    VkShaderModule createShaderModule(const std::vector<char>& code);
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
     VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     VkFormat findDepthFormat();
     bool hasStencilComponent(VkFormat format);
-    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
-    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
     void recreateSwapChain();
     void cleanupSwapChain();
-    void cleanupGBuffer();           // NEW: Cleanup G-buffer resources
-    void createCopyDescriptorSetLayout();
-    void createCopyPipeline();
-    void createGBufferSampler();
-    void createCopyDescriptorSets();
-    void recreateGraphicsPipeline();
+    void cleanupGBuffer();
     bool isWindowMinimized() const;
 
-    VkPipeline copyPipeline = VK_NULL_HANDLE;
-    VkPipelineLayout copyPipelineLayout = VK_NULL_HANDLE;
-    VkDescriptorSetLayout copyDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool copyDescriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> copyDescriptorSets;
-
-    // Samplers for G-buffer textures
-    VkSampler gBufferSampler = VK_NULL_HANDLE;
+    // Render pass creation
+    void createScreenRenderPass();
+    void createGBufferRenderPass();
+    void createFramebuffers();
 };

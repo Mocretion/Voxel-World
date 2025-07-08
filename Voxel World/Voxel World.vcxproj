@@ -131,11 +131,15 @@
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="Chunk.cpp" />
     <ClCompile Include="ChunkManager.cpp" />
+    <ClCompile Include="CompositeShader.cpp" />
     <ClCompile Include="GBuffer.cpp" />
+    <ClCompile Include="GBufferShader.cpp" />
     <ClCompile Include="InputManager.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PerlinNoise.cpp" />
     <ClCompile Include="ResourceManager.cpp" />
+    <ClCompile Include="Shader.cpp" />
+    <ClCompile Include="SSAOShader.cpp" />
     <ClCompile Include="VoxelWorld.cpp" />
     <ClCompile Include="VulkanRenderer.cpp" />
     <ClCompile Include="VulkanRenderer.h" />
@@ -147,18 +151,24 @@
     <None Include="copy_fragment.frag" />
     <None Include="copy_vertex.vert" />
     <None Include="fragment.frag" />
+    <None Include="ssao_fragment.frag" />
+    <None Include="ssao_vertex.vert" />
     <None Include="vertex.vert" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
     <ClInclude Include="Chunk.h" />
     <ClInclude Include="ChunkManager.h" />
+    <ClInclude Include="CompositeShader.h" />
     <ClInclude Include="GBuffer.h" />
+    <ClInclude Include="GBufferShader.h" />
     <ClInclude Include="HUD.h" />
     <ClInclude Include="InputManager.h" />
     <ClInclude Include="PerlinNoise.h" />
     <ClInclude Include="RemovableQueue.h" />
     <ClInclude Include="ResourceManager.h" />
+    <ClInclude Include="Shader.h" />
+    <ClInclude Include="SSAOShader.h" />
     <ClInclude Include="Vertex.h" />
     <ClInclude Include="VoxelWorld.h" />
     <ClInclude Include="WorldRenderer.h" />

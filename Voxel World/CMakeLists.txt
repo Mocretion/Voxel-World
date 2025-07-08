@@ -27,6 +27,10 @@ add_executable(${PROJECT_NAME}
     "ResourceManager.cpp"
     "VulkanRenderer.cpp"
     "WorldRenderer.cpp"
+    "CompositeShader.cpp"
+    "GBufferShader.cpp"
+    "Shader.cpp"
+    "SSAOShader.cpp"
     # Add any other .cpp files here as you create them
 )
 

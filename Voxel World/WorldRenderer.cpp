@@ -151,6 +151,8 @@ void WorldRenderer::render(const Camera& camera, float aspectRatio)
 
     // Update the renderer's uniform buffers
     vulkanRenderer->updateUniforms(ubo);
+
+    vulkanRenderer->updateSSAOUniforms(camera, aspectRatio);
 }
 
 int WorldRenderer::getLoadedChunkCount() const
