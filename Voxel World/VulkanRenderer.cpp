@@ -4,6 +4,8 @@
 #include "GBufferShader.h"
 #include "SSAOShader.h"
 #include "CompositeShader.h"
+#include "SSAOBlurShader.h"
+
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
@@ -43,11 +45,13 @@ void VulkanRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32
     createCommandPool();
     createDepthResources();
     createGBufferResources();
+    createSSAOResources();
     createGBufferSampler();
 
     // Framebuffers
     createFramebuffers();
     createGBufferFramebuffers();
+    createSSAOFramebuffers();
 
     // Descriptor pool (shared by all shaders)
     createDescriptorPool();
@@ -59,7 +63,7 @@ void VulkanRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32
     createCommandBuffers();
     createSyncObjects();
 
-    std::cout << "Vulkan renderer initialized successfully with shader system!" << std::endl;
+    std::cout << "Vulkan renderer initialized successfully with SSAO blur pipeline!" << std::endl;
 }
 
 void VulkanRenderer::initializeShaders()
@@ -68,12 +72,18 @@ void VulkanRenderer::initializeShaders()
 
     try
     {
-        // Create shader instances in rendering order
+        // Create shader instances
         std::cout << "Creating GBufferShader..." << std::endl;
         gBufferShader = std::make_unique<GBufferShader>();
 
         std::cout << "Creating SSAOShader..." << std::endl;
         ssaoShader = std::make_unique<SSAOShader>();
+
+        std::cout << "Creating Horizontal Blur Shader..." << std::endl;
+        horizontalBlurShader = std::make_unique<SSAOBlurShader>();
+
+        std::cout << "Creating Vertical Blur Shader..." << std::endl;
+        verticalBlurShader = std::make_unique<SSAOBlurShader>();
 
         std::cout << "Creating CompositeShader..." << std::endl;
         compositeShader = std::make_unique<CompositeShader>();
@@ -83,7 +93,13 @@ void VulkanRenderer::initializeShaders()
         gBufferShader->initialize(this, gBufferRenderPass, swapChainExtent);
 
         std::cout << "Initializing SSAOShader..." << std::endl;
-        ssaoShader->initialize(this, renderPass, swapChainExtent);
+        ssaoShader->initialize(this, ssaoRenderPass, swapChainExtent);
+
+        std::cout << "Initializing Horizontal Blur Shader..." << std::endl;
+        horizontalBlurShader->initialize(this, blurRenderPass, swapChainExtent);
+
+        std::cout << "Initializing Vertical Blur Shader..." << std::endl;
+        verticalBlurShader->initialize(this, blurRenderPass, swapChainExtent);
 
         std::cout << "Initializing CompositeShader..." << std::endl;
         compositeShader->initialize(this, renderPass, swapChainExtent);
@@ -98,17 +114,42 @@ void VulkanRenderer::initializeShaders()
             gBufferSampler
         );
 
-        // Configure composite shader with G-buffer textures
+        // Configure horizontal blur shader
+        std::cout << "Configuring horizontal blur shader..." << std::endl;
+        horizontalBlurShader->setBlurDirection(glm::vec2(1.0f, 0.0f));  // Horizontal
+        horizontalBlurShader->setBlurRadius(32.0f);
+        horizontalBlurShader->setDepthThreshold(0.1f);
+        horizontalBlurShader->setInputTextures(
+            this,
+            ssaoBuffers.rawSSAOImageView,     // Input: raw SSAO
+            gBuffer.positionImageView,        // Depth for edge detection
+            gBufferSampler
+        );
+
+        // Configure vertical blur shader
+        std::cout << "Configuring vertical blur shader..." << std::endl;
+        verticalBlurShader->setBlurDirection(glm::vec2(0.0f, 1.0f));   // Vertical
+        verticalBlurShader->setBlurRadius(4.0f);
+        verticalBlurShader->setDepthThreshold(0.1f);
+        verticalBlurShader->setInputTextures(
+            this,
+            ssaoBuffers.blurImage1View,       // Input: horizontal blur result
+            gBuffer.positionImageView,        // Depth for edge detection
+            gBufferSampler
+        );
+
+        // Configure composite shader with G-buffer and final blurred SSAO
         std::cout << "Configuring composite shader..." << std::endl;
         compositeShader->setInputTextures(
             this,
             gBuffer.positionImageView,
             gBuffer.normalImageView,
             gBuffer.albedoImageView,
+            ssaoBuffers.blurImage2View,       // Final vertical blur result
             gBufferSampler
         );
 
-        std::cout << "Shader pipeline initialized successfully!" << std::endl;
+        std::cout << "SSAO blur shader pipeline initialized successfully!" << std::endl;
     }
     catch (const std::exception& e)
     {
@@ -280,7 +321,7 @@ void VulkanRenderer::cleanup()
     {
         vkDeviceWaitIdle(device);
 
-        // Cleanup shaders first
+        // Cleanup all shaders
         if (gBufferShader)
         {
             gBufferShader->cleanup(device);
@@ -291,6 +332,16 @@ void VulkanRenderer::cleanup()
             ssaoShader->cleanup(device);
             ssaoShader.reset();
         }
+        if (horizontalBlurShader)
+        {
+            horizontalBlurShader->cleanup(device);
+            horizontalBlurShader.reset();
+        }
+        if (verticalBlurShader)
+        {
+            verticalBlurShader->cleanup(device);
+            verticalBlurShader.reset();
+        }
         if (compositeShader)
         {
             compositeShader->cleanup(device);
@@ -298,9 +349,7 @@ void VulkanRenderer::cleanup()
         }
 
         cleanupSwapChain();
-        cleanupGBuffer();
 
-        // Cleanup buffers
         if (vertexBuffer != VK_NULL_HANDLE)
         {
             vkDestroyBuffer(device, vertexBuffer, nullptr);
@@ -313,13 +362,11 @@ void VulkanRenderer::cleanup()
             vkFreeMemory(device, indexBufferMemory, nullptr);
         }
 
-        // Cleanup descriptor pool
         if (descriptorPool != VK_NULL_HANDLE)
         {
             vkDestroyDescriptorPool(device, descriptorPool, nullptr);
         }
 
-        // Cleanup synchronization objects
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             if (renderFinishedSemaphores[i] != VK_NULL_HANDLE)
@@ -686,6 +733,8 @@ void VulkanRenderer::createRenderPasses()
 {
     createScreenRenderPass();
     createGBufferRenderPass();
+    createSSAORenderPass();
+    createBlurRenderPass();
 }
 
 void VulkanRenderer::createFramebuffers()
@@ -798,27 +847,35 @@ void VulkanRenderer::createIndexBuffer()
 
 void VulkanRenderer::createDescriptorPool()
 {
-    // Calculate descriptor requirements for all shaders
+    // Calculate descriptor requirements for all 5 shaders:
+    // 1. GBufferShader - 1 uniform buffer
+    // 2. SSAOShader - 1 uniform buffer + 4 image samplers (G-buffer + noise)
+    // 3. HorizontalBlurShader - 1 uniform buffer + 2 image samplers (SSAO + depth)
+    // 4. VerticalBlurShader - 1 uniform buffer + 2 image samplers (blur1 + depth)  
+    // 5. CompositeShader - 4 image samplers (G-buffer + final SSAO)
+
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
 
-    // Uniform buffers (G-buffer + SSAO shaders)
+    // Uniform buffers: GBuffer(1) + SSAO(1) + HorizontalBlur(1) + VerticalBlur(1) = 4 per frame
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
+    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 4);
 
-    // Image samplers (SSAO + Composite shaders need G-buffer textures + noise)
+    // Image samplers: SSAO(4) + HorizontalBlur(2) + VerticalBlur(2) + Composite(4) = 12 per frame
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 10);
+    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 12);
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 3); // 3 shaders
+    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 5); // 5 shaders
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create descriptor pool!");
     }
+
+    std::cout << "Descriptor pool created for 5-shader SSAO blur pipeline!" << std::endl;
 }
 
 void VulkanRenderer::createCommandBuffers()
@@ -880,7 +937,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
         throw std::runtime_error("Failed to begin recording command buffer!");
     }
 
-    // FIRST PASS: Render to G-buffer
+    // PASS 1: Render to G-buffer
     VkRenderPassBeginInfo gBufferRenderPassInfo{};
     gBufferRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     gBufferRenderPassInfo.renderPass = gBufferRenderPass;
@@ -888,7 +945,6 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
     gBufferRenderPassInfo.renderArea.offset = { 0, 0 };
     gBufferRenderPassInfo.renderArea.extent = swapChainExtent;
 
-    // Clear values for G-buffer + depth
     std::array<VkClearValue, 4> gBufferClearValues{};
     gBufferClearValues[0].color = { {0.0f, 0.0f, 0.0f, 0.0f} };  // Position
     gBufferClearValues[1].color = { {0.0f, 0.0f, 0.0f, 0.0f} };  // Normal  
@@ -900,9 +956,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
 
     vkCmdBeginRenderPass(commandBuffer, &gBufferRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    // Render 3D geometry using G-buffer shader
     gBufferShader->recordCommands(commandBuffer, currentFrame);
-
     if (vertexBuffer != VK_NULL_HANDLE && indexBuffer != VK_NULL_HANDLE && !currentIndices.empty())
     {
         gBufferShader->bindVertexData(commandBuffer, vertexBuffer, indexBuffer);
@@ -911,7 +965,56 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
 
     vkCmdEndRenderPass(commandBuffer);
 
-    // SECOND PASS: Apply SSAO and render to screen
+    // PASS 2: Generate raw SSAO
+    VkRenderPassBeginInfo ssaoRenderPassInfo{};
+    ssaoRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    ssaoRenderPassInfo.renderPass = ssaoRenderPass;
+    ssaoRenderPassInfo.framebuffer = ssaoFramebuffers[imageIndex];
+    ssaoRenderPassInfo.renderArea.offset = { 0, 0 };
+    ssaoRenderPassInfo.renderArea.extent = swapChainExtent;
+
+    VkClearValue ssaoClearValue{};
+    ssaoClearValue.color = { {1.0f, 0.0f, 0.0f, 0.0f} };  // Clear to white (no occlusion)
+    ssaoRenderPassInfo.clearValueCount = 1;
+    ssaoRenderPassInfo.pClearValues = &ssaoClearValue;
+
+    vkCmdBeginRenderPass(commandBuffer, &ssaoRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    ssaoShader->recordCommands(commandBuffer, currentFrame);
+    vkCmdEndRenderPass(commandBuffer);
+
+    // PASS 3: Horizontal blur
+    VkRenderPassBeginInfo blurRenderPassInfo1{};
+    blurRenderPassInfo1.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    blurRenderPassInfo1.renderPass = blurRenderPass;
+    blurRenderPassInfo1.framebuffer = blurFramebuffers1[imageIndex];
+    blurRenderPassInfo1.renderArea.offset = { 0, 0 };
+    blurRenderPassInfo1.renderArea.extent = swapChainExtent;
+
+    VkClearValue blurClearValue{};
+    blurClearValue.color = { {1.0f, 0.0f, 0.0f, 0.0f} };
+    blurRenderPassInfo1.clearValueCount = 1;
+    blurRenderPassInfo1.pClearValues = &blurClearValue;
+
+    vkCmdBeginRenderPass(commandBuffer, &blurRenderPassInfo1, VK_SUBPASS_CONTENTS_INLINE);
+    horizontalBlurShader->recordCommands(commandBuffer, currentFrame);
+    vkCmdEndRenderPass(commandBuffer);
+
+    // PASS 4: Vertical blur
+    VkRenderPassBeginInfo blurRenderPassInfo2{};
+    blurRenderPassInfo2.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    blurRenderPassInfo2.renderPass = blurRenderPass;
+    blurRenderPassInfo2.framebuffer = blurFramebuffers2[imageIndex];
+    blurRenderPassInfo2.renderArea.offset = { 0, 0 };
+    blurRenderPassInfo2.renderArea.extent = swapChainExtent;
+
+    blurRenderPassInfo2.clearValueCount = 1;
+    blurRenderPassInfo2.pClearValues = &blurClearValue;
+
+    vkCmdBeginRenderPass(commandBuffer, &blurRenderPassInfo2, VK_SUBPASS_CONTENTS_INLINE);
+    verticalBlurShader->recordCommands(commandBuffer, currentFrame);
+    vkCmdEndRenderPass(commandBuffer);
+
+    // PASS 5: Final composite to screen
     VkRenderPassBeginInfo screenRenderPassInfo{};
     screenRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     screenRenderPassInfo.renderPass = renderPass;
@@ -925,10 +1028,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
     screenRenderPassInfo.pClearValues = &screenClearValue;
 
     vkCmdBeginRenderPass(commandBuffer, &screenRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Apply SSAO and render final result
-    ssaoShader->recordCommands(commandBuffer, currentFrame);
-
+    compositeShader->recordCommands(commandBuffer, currentFrame);
     vkCmdEndRenderPass(commandBuffer);
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
@@ -1114,10 +1214,9 @@ void VulkanRenderer::recreateSwapChain()
 {
     if (isWindowMinimized())
     {
-        return; // Don't recreate when minimized
+        return;
     }
 
-    // Get current window size
     int width = 0, height = 0;
     SDL_GetWindowSize(window, &width, &height);
     windowWidth = static_cast<uint32_t>(width);
@@ -1137,8 +1236,10 @@ void VulkanRenderer::recreateSwapChain()
     createImageViews();
     createDepthResources();
     createGBufferResources();
+    createSSAOResources();
     createFramebuffers();
     createGBufferFramebuffers();
+    createSSAOFramebuffers();
 
     // Recreate all shaders with new extent
     if (gBufferShader)
@@ -1147,33 +1248,39 @@ void VulkanRenderer::recreateSwapChain()
     }
     if (ssaoShader)
     {
-        ssaoShader->recreate(this, renderPass, swapChainExtent);
-        ssaoShader->setGBufferTextures(
-            this,
-            gBuffer.positionImageView,
-            gBuffer.normalImageView,
-            gBuffer.albedoImageView,
-            gBufferSampler
-        );
+        ssaoShader->recreate(this, ssaoRenderPass, swapChainExtent);
+        ssaoShader->setGBufferTextures(this, gBuffer.positionImageView, gBuffer.normalImageView, gBuffer.albedoImageView, gBufferSampler);
+    }
+    if (horizontalBlurShader)
+    {
+        horizontalBlurShader->recreate(this, blurRenderPass, swapChainExtent);
+        horizontalBlurShader->setBlurDirection(glm::vec2(1.0f, 0.0f));
+        horizontalBlurShader->setBlurRadius(4.0f);
+        horizontalBlurShader->setDepthThreshold(0.1f);
+        horizontalBlurShader->setInputTextures(this, ssaoBuffers.rawSSAOImageView, gBuffer.positionImageView, gBufferSampler);
+    }
+    if (verticalBlurShader)
+    {
+        verticalBlurShader->recreate(this, blurRenderPass, swapChainExtent);
+        verticalBlurShader->setBlurDirection(glm::vec2(0.0f, 1.0f));
+        verticalBlurShader->setBlurRadius(4.0f);
+        verticalBlurShader->setDepthThreshold(0.1f);
+        verticalBlurShader->setInputTextures(this, ssaoBuffers.blurImage1View, gBuffer.positionImageView, gBufferSampler);
     }
     if (compositeShader)
     {
         compositeShader->recreate(this, renderPass, swapChainExtent);
-        compositeShader->setInputTextures(
-            this,
-            gBuffer.positionImageView,
-            gBuffer.normalImageView,
-            gBuffer.albedoImageView,
-            gBufferSampler
-        );
+        compositeShader->setInputTextures(this, gBuffer.positionImageView, gBuffer.normalImageView,
+            gBuffer.albedoImageView, ssaoBuffers.blurImage2View, gBufferSampler);
     }
 
-    std::cout << "Swap chain and shaders recreated successfully!" << std::endl;
+    std::cout << "Swap chain and SSAO blur pipeline recreated successfully!" << std::endl;
 }
 
 void VulkanRenderer::cleanupSwapChain()
 {
     cleanupGBuffer();
+    cleanupSSAOBuffers();
 
     if (gBufferSampler != VK_NULL_HANDLE)
     {
@@ -1611,4 +1718,296 @@ void VulkanRenderer::endSingleTimeCommands(VkCommandBuffer commandBuffer)
     vkQueueWaitIdle(graphicsQueue);
 
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}
+
+void VulkanRenderer::createSSAOResources()
+{
+    std::cout << "Creating SSAO intermediate textures..." << std::endl;
+
+    // Raw SSAO texture (R8_UNORM for single channel)
+    createImage(swapChainExtent.width, swapChainExtent.height,
+        VK_FORMAT_R8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ssaoBuffers.rawSSAOImage, ssaoBuffers.rawSSAOImageMemory);
+
+    ssaoBuffers.rawSSAOImageView = createImageView(ssaoBuffers.rawSSAOImage,
+        VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // Blur texture 1 (ping)
+    createImage(swapChainExtent.width, swapChainExtent.height,
+        VK_FORMAT_R8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ssaoBuffers.blurImage1, ssaoBuffers.blurImage1Memory);
+
+    ssaoBuffers.blurImage1View = createImageView(ssaoBuffers.blurImage1,
+        VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // Blur texture 2 (pong)
+    createImage(swapChainExtent.width, swapChainExtent.height,
+        VK_FORMAT_R8_UNORM,
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ssaoBuffers.blurImage2, ssaoBuffers.blurImage2Memory);
+
+    ssaoBuffers.blurImage2View = createImageView(ssaoBuffers.blurImage2,
+        VK_FORMAT_R8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    std::cout << "SSAO intermediate textures created successfully!" << std::endl;
+}
+
+void VulkanRenderer::createSSAOFramebuffers()
+{
+    std::cout << "Creating SSAO framebuffers..." << std::endl;
+
+    // SSAO framebuffers (raw SSAO output)
+    ssaoFramebuffers.resize(swapChainImages.size());
+    for (size_t i = 0; i < swapChainImages.size(); i++)
+    {
+        VkImageView attachments[] = { ssaoBuffers.rawSSAOImageView };
+
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = ssaoRenderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = swapChainExtent.width;
+        framebufferInfo.height = swapChainExtent.height;
+        framebufferInfo.layers = 1;
+
+        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &ssaoFramebuffers[i]) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create SSAO framebuffer!");
+        }
+    }
+
+    // Blur framebuffers 1 (horizontal blur output)
+    blurFramebuffers1.resize(swapChainImages.size());
+    for (size_t i = 0; i < swapChainImages.size(); i++)
+    {
+        VkImageView attachments[] = { ssaoBuffers.blurImage1View };
+
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = blurRenderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = swapChainExtent.width;
+        framebufferInfo.height = swapChainExtent.height;
+        framebufferInfo.layers = 1;
+
+        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &blurFramebuffers1[i]) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create blur framebuffer 1!");
+        }
+    }
+
+    // Blur framebuffers 2 (vertical blur output)
+    blurFramebuffers2.resize(swapChainImages.size());
+    for (size_t i = 0; i < swapChainImages.size(); i++)
+    {
+        VkImageView attachments[] = { ssaoBuffers.blurImage2View };
+
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = blurRenderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = swapChainExtent.width;
+        framebufferInfo.height = swapChainExtent.height;
+        framebufferInfo.layers = 1;
+
+        if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &blurFramebuffers2[i]) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create blur framebuffer 2!");
+        }
+    }
+
+    std::cout << "SSAO framebuffers created successfully!" << std::endl;
+}
+
+void VulkanRenderer::createSSAORenderPass()
+{
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = VK_FORMAT_R8_UNORM;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
+
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &ssaoRenderPass) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create SSAO render pass!");
+    }
+}
+
+void VulkanRenderer::createBlurRenderPass()
+{
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = VK_FORMAT_R8_UNORM;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
+
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &blurRenderPass) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create blur render pass!");
+    }
+}
+
+void VulkanRenderer::cleanupSSAOBuffers()
+{
+    // Destroy SSAO framebuffers
+    for (auto framebuffer : ssaoFramebuffers)
+    {
+        if (framebuffer != VK_NULL_HANDLE)
+        {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+    }
+    ssaoFramebuffers.clear();
+
+    for (auto framebuffer : blurFramebuffers1)
+    {
+        if (framebuffer != VK_NULL_HANDLE)
+        {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+    }
+    blurFramebuffers1.clear();
+
+    for (auto framebuffer : blurFramebuffers2)
+    {
+        if (framebuffer != VK_NULL_HANDLE)
+        {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+    }
+    blurFramebuffers2.clear();
+
+    // Destroy SSAO image views
+    if (ssaoBuffers.rawSSAOImageView != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(device, ssaoBuffers.rawSSAOImageView, nullptr);
+        ssaoBuffers.rawSSAOImageView = VK_NULL_HANDLE;
+    }
+    if (ssaoBuffers.blurImage1View != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(device, ssaoBuffers.blurImage1View, nullptr);
+        ssaoBuffers.blurImage1View = VK_NULL_HANDLE;
+    }
+    if (ssaoBuffers.blurImage2View != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(device, ssaoBuffers.blurImage2View, nullptr);
+        ssaoBuffers.blurImage2View = VK_NULL_HANDLE;
+    }
+
+    // Destroy SSAO images and memory
+    if (ssaoBuffers.rawSSAOImage != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(device, ssaoBuffers.rawSSAOImage, nullptr);
+        ssaoBuffers.rawSSAOImage = VK_NULL_HANDLE;
+    }
+    if (ssaoBuffers.rawSSAOImageMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device, ssaoBuffers.rawSSAOImageMemory, nullptr);
+        ssaoBuffers.rawSSAOImageMemory = VK_NULL_HANDLE;
+    }
+
+    if (ssaoBuffers.blurImage1 != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(device, ssaoBuffers.blurImage1, nullptr);
+        ssaoBuffers.blurImage1 = VK_NULL_HANDLE;
+    }
+    if (ssaoBuffers.blurImage1Memory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device, ssaoBuffers.blurImage1Memory, nullptr);
+        ssaoBuffers.blurImage1Memory = VK_NULL_HANDLE;
+    }
+
+    if (ssaoBuffers.blurImage2 != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(device, ssaoBuffers.blurImage2, nullptr);
+        ssaoBuffers.blurImage2 = VK_NULL_HANDLE;
+    }
+    if (ssaoBuffers.blurImage2Memory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device, ssaoBuffers.blurImage2Memory, nullptr);
+        ssaoBuffers.blurImage2Memory = VK_NULL_HANDLE;
+    }
+
+    // Destroy SSAO render passes
+    if (ssaoRenderPass != VK_NULL_HANDLE)
+    {
+        vkDestroyRenderPass(device, ssaoRenderPass, nullptr);
+        ssaoRenderPass = VK_NULL_HANDLE;
+    }
+    if (blurRenderPass != VK_NULL_HANDLE)
+    {
+        vkDestroyRenderPass(device, blurRenderPass, nullptr);
+        blurRenderPass = VK_NULL_HANDLE;
+    }
 }

@@ -15,6 +15,7 @@
 // Forward declarations for shader classes
 class GBufferShader;
 class SSAOShader;
+class SSAOBlurShader;
 class CompositeShader;
 
 class VulkanRenderer {
@@ -104,6 +105,23 @@ private:
         VkImageView albedoImageView = VK_NULL_HANDLE;
     } gBuffer;
 
+    // SSAO intermediate textures
+    struct SSAOBuffers {
+        // Raw SSAO output
+        VkImage rawSSAOImage = VK_NULL_HANDLE;
+        VkDeviceMemory rawSSAOImageMemory = VK_NULL_HANDLE;
+        VkImageView rawSSAOImageView = VK_NULL_HANDLE;
+
+        // Blur ping-pong textures
+        VkImage blurImage1 = VK_NULL_HANDLE;
+        VkDeviceMemory blurImage1Memory = VK_NULL_HANDLE;
+        VkImageView blurImage1View = VK_NULL_HANDLE;
+
+        VkImage blurImage2 = VK_NULL_HANDLE;
+        VkDeviceMemory blurImage2Memory = VK_NULL_HANDLE;
+        VkImageView blurImage2View = VK_NULL_HANDLE;
+    } ssaoBuffers;
+
     // Swap chain
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
     std::vector<VkImage> swapChainImages;
@@ -115,9 +133,16 @@ private:
     // G-buffer framebuffers
     std::vector<VkFramebuffer> gBufferFramebuffers;
 
+    // SSAO framebuffers
+    std::vector<VkFramebuffer> ssaoFramebuffers;
+    std::vector<VkFramebuffer> blurFramebuffers1;
+    std::vector<VkFramebuffer> blurFramebuffers2;
+
     // Render passes
     VkRenderPass renderPass = VK_NULL_HANDLE;          // Final screen render pass
     VkRenderPass gBufferRenderPass = VK_NULL_HANDLE;   // G-buffer render pass
+    VkRenderPass ssaoRenderPass = VK_NULL_HANDLE;      // SSAO render pass
+    VkRenderPass blurRenderPass = VK_NULL_HANDLE;      // Blur render pass
 
     // Commands and synchronization
     VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -149,6 +174,8 @@ private:
     // Shader pipeline instances
     std::unique_ptr<GBufferShader> gBufferShader;
     std::unique_ptr<SSAOShader> ssaoShader;
+    std::unique_ptr<SSAOBlurShader> horizontalBlurShader;
+    std::unique_ptr<SSAOBlurShader> verticalBlurShader;
     std::unique_ptr<CompositeShader> compositeShader;
 
     // Helper structs
@@ -177,7 +204,9 @@ private:
     void createImageViews();
     void createRenderPasses();
     void createGBufferResources();
+    void createSSAOResources();
     void createGBufferFramebuffers();
+    void createSSAOFramebuffers();
     void createCommandPool();
     void createVertexBuffer();
     void createIndexBuffer();
@@ -205,10 +234,13 @@ private:
     void recreateSwapChain();
     void cleanupSwapChain();
     void cleanupGBuffer();
+    void cleanupSSAOBuffers();
     bool isWindowMinimized() const;
 
     // Render pass creation
     void createScreenRenderPass();
     void createGBufferRenderPass();
+    void createSSAORenderPass();
+    void createBlurRenderPass();
     void createFramebuffers();
 };
