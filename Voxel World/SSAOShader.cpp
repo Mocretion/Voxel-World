@@ -19,8 +19,7 @@ void SSAOShader::initialize(VulkanRenderer* renderer, VkRenderPass renderPass, V
     std::cout << "SSAOShader: Creating uniform buffers..." << std::endl;
     createUniformBuffers(renderer, getUniformDataSize(), renderer->getMaxFramesInFlight());
 
-    // DON'T create descriptor sets here - wait until G-buffer textures are set
-    std::cout << "SSAOShader: Initialization complete (descriptor sets will be created later)!" << std::endl;
+    std::cout << "SSAOShader: Initialization complete!" << std::endl;
 }
 
 void SSAOShader::cleanup(VkDevice device)
@@ -176,7 +175,7 @@ void SSAOShader::createDescriptorSetLayout(VkDevice device)
 void SSAOShader::createPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent)
 {
     auto vertShaderCode = loadShaderFile("ssao_vert.spv");
-    auto fragShaderCode = loadShaderFile("ssao_frag.spv");
+    auto fragShaderCode = loadShaderFile("ssao_only_frag.spv");  // CHANGED: Use new SSAO-only fragment shader
 
     VkShaderModule vertShaderModule = createShaderModule(device, vertShaderCode);
     VkShaderModule fragShaderModule = createShaderModule(device, fragShaderCode);
@@ -243,6 +242,7 @@ void SSAOShader::createPipeline(VkDevice device, VkRenderPass renderPass, VkExte
     depthStencil.depthTestEnable = VK_FALSE;
     depthStencil.depthWriteEnable = VK_FALSE;
 
+    // CHANGED: Single render target for SSAO output
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -251,7 +251,7 @@ void SSAOShader::createPipeline(VkDevice device, VkRenderPass renderPass, VkExte
     VkPipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     colorBlending.logicOpEnable = VK_FALSE;
-    colorBlending.attachmentCount = 1;
+    colorBlending.attachmentCount = 1;  // CHANGED: Single attachment
     colorBlending.pAttachments = &colorBlendAttachment;
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};

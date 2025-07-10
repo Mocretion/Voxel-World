@@ -20,7 +20,7 @@ public:
     bool hasUniformData() const override { return false; }
 
     // Composite specific methods
-    void setInputTextures(VulkanRenderer* renderer, VkImageView positionView, VkImageView normalView, VkImageView albedoView, VkSampler sampler);
+    void setInputTextures(VulkanRenderer* renderer, VkImageView positionView, VkImageView normalView, VkImageView albedoView, VkImageView ssaoView, VkSampler sampler);
 
 protected:
     void createDescriptorSetLayout(VkDevice device) override;
@@ -32,5 +32,6 @@ private:
     VkImageView inputPositionView = VK_NULL_HANDLE;
     VkImageView inputNormalView = VK_NULL_HANDLE;
     VkImageView inputAlbedoView = VK_NULL_HANDLE;
+    VkImageView inputSSAOView = VK_NULL_HANDLE;
     VkSampler inputSampler = VK_NULL_HANDLE;
 };

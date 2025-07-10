@@ -31,6 +31,7 @@ add_executable(${PROJECT_NAME}
     "GBufferShader.cpp"
     "Shader.cpp"
     "SSAOShader.cpp"
+    "SSAOBlurShader.cpp"
     # Add any other .cpp files here as you create them
 )
 

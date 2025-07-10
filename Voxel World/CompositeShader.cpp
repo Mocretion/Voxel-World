@@ -76,11 +76,12 @@ void CompositeShader::recordCommands(VkCommandBuffer commandBuffer, uint32_t fra
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 }
 
-void CompositeShader::setInputTextures(VulkanRenderer* renderer, VkImageView positionView, VkImageView normalView, VkImageView albedoView, VkSampler sampler)
+void CompositeShader::setInputTextures(VulkanRenderer* renderer, VkImageView positionView, VkImageView normalView, VkImageView albedoView, VkImageView ssaoView, VkSampler sampler)
 {
     inputPositionView = positionView;
     inputNormalView = normalView;
     inputAlbedoView = albedoView;
+    inputSSAOView = ssaoView;
     inputSampler = sampler;
 
     // Now create the descriptor sets with the input textures
@@ -89,8 +90,8 @@ void CompositeShader::setInputTextures(VulkanRenderer* renderer, VkImageView pos
 
 void CompositeShader::createDescriptorSetLayout(VkDevice device)
 {
-    // G-buffer texture bindings
-    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+    // G-buffer texture bindings + SSAO
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
 
     // Position texture (binding 1)
     bindings[0].binding = 1;
@@ -113,6 +114,13 @@ void CompositeShader::createDescriptorSetLayout(VkDevice device)
     bindings[2].pImmutableSamplers = nullptr;
     bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    // SSAO texture (binding 4)
+    bindings[3].binding = 4;
+    bindings[3].descriptorCount = 1;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[3].pImmutableSamplers = nullptr;
+    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -127,7 +135,7 @@ void CompositeShader::createDescriptorSetLayout(VkDevice device)
 void CompositeShader::createPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent)
 {
     auto vertShaderCode = loadShaderFile("copy_vert.spv");
-    auto fragShaderCode = loadShaderFile("copy_frag.spv");
+    auto fragShaderCode = loadShaderFile("final_composite_frag.spv");  // CHANGED: Use new composite fragment shader
 
     VkShaderModule vertShaderModule = createShaderModule(device, vertShaderCode);
     VkShaderModule fragShaderModule = createShaderModule(device, fragShaderCode);
@@ -258,7 +266,7 @@ void CompositeShader::createDescriptorSets(VulkanRenderer* renderer)
 
     for (size_t i = 0; i < renderer->getMaxFramesInFlight(); i++)
     {
-        std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
+        std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
 
         // Position texture (binding 1)
         VkDescriptorImageInfo positionImageInfo{};
@@ -301,6 +309,20 @@ void CompositeShader::createDescriptorSets(VulkanRenderer* renderer)
         descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWrites[2].descriptorCount = 1;
         descriptorWrites[2].pImageInfo = &albedoImageInfo;
+
+        // SSAO texture (binding 4)
+        VkDescriptorImageInfo ssaoImageInfo{};
+        ssaoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ssaoImageInfo.imageView = inputSSAOView;
+        ssaoImageInfo.sampler = inputSampler;
+
+        descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[3].dstSet = descriptorSets[i];
+        descriptorWrites[3].dstBinding = 4;
+        descriptorWrites[3].dstArrayElement = 0;
+        descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites[3].descriptorCount = 1;
+        descriptorWrites[3].pImageInfo = &ssaoImageInfo;
 
         vkUpdateDescriptorSets(renderer->getDevice(), static_cast<uint32_t>(descriptorWrites.size()),
             descriptorWrites.data(), 0, nullptr);
