@@ -49,12 +49,16 @@ void main()
             float depthDiff = abs(centerDepth - sampleDepth);
             float bilateralWeight = exp(-depthDiff / blurParams.depthThreshold);
 
+            // Adaptive strength based on surface flatness
+            float surfaceFlatness = 1.0 - smoothstep(0.0, blurParams.depthThreshold * 0.5, depthDiff);
+            float adaptiveStrength = mix(0.5, 2.0, surfaceFlatness); // Stronger on flat surfaces
+
             // Gaussian weight based on distance
             float distance = float(i);
             float gaussianWeight = exp(-(distance * distance) / (2.0 * blurParams.blurRadius * blurParams.blurRadius));
 
             // Combined weight
-            float weight = bilateralWeight * gaussianWeight;
+            float weight = bilateralWeight * gaussianWeight * adaptiveStrength;
 
             result += sampleSSAO * weight;
             totalWeight += weight;

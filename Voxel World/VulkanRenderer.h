@@ -176,6 +176,8 @@ private:
     std::unique_ptr<SSAOShader> ssaoShader;
     std::unique_ptr<SSAOBlurShader> horizontalBlurShader;
     std::unique_ptr<SSAOBlurShader> verticalBlurShader;
+    std::unique_ptr<SSAOBlurShader> horizontalBlurShader2;
+    std::unique_ptr<SSAOBlurShader> verticalBlurShader2;
     std::unique_ptr<CompositeShader> compositeShader;
 
     // Helper structs

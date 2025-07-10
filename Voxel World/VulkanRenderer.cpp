@@ -1,4 +1,4 @@
-#include "VulkanRenderer.h"
+﻿#include "VulkanRenderer.h"
 #include "ResourceManager.h"
 
 #include "GBufferShader.h"
@@ -85,6 +85,10 @@ void VulkanRenderer::initializeShaders()
         std::cout << "Creating Vertical Blur Shader..." << std::endl;
         verticalBlurShader = std::make_unique<SSAOBlurShader>();
 
+        std::cout << "Creating additional blur shaders..." << std::endl;
+        horizontalBlurShader2 = std::make_unique<SSAOBlurShader>();
+        verticalBlurShader2 = std::make_unique<SSAOBlurShader>();
+
         std::cout << "Creating CompositeShader..." << std::endl;
         compositeShader = std::make_unique<CompositeShader>();
 
@@ -100,6 +104,10 @@ void VulkanRenderer::initializeShaders()
 
         std::cout << "Initializing Vertical Blur Shader..." << std::endl;
         verticalBlurShader->initialize(this, blurRenderPass, swapChainExtent);
+
+        std::cout << "Initializing additional blur shaders..." << std::endl;
+        horizontalBlurShader2->initialize(this, blurRenderPass, swapChainExtent);
+        verticalBlurShader2->initialize(this, blurRenderPass, swapChainExtent);
 
         std::cout << "Initializing CompositeShader..." << std::endl;
         compositeShader->initialize(this, renderPass, swapChainExtent);
@@ -117,8 +125,8 @@ void VulkanRenderer::initializeShaders()
         // Configure horizontal blur shader
         std::cout << "Configuring horizontal blur shader..." << std::endl;
         horizontalBlurShader->setBlurDirection(glm::vec2(1.0f, 0.0f));  // Horizontal
-        horizontalBlurShader->setBlurRadius(32.0f);
-        horizontalBlurShader->setDepthThreshold(0.1f);
+        horizontalBlurShader->setBlurRadius(2.5f);
+        horizontalBlurShader->setDepthThreshold(0.08f);
         horizontalBlurShader->setInputTextures(
             this,
             ssaoBuffers.rawSSAOImageView,     // Input: raw SSAO
@@ -129,12 +137,33 @@ void VulkanRenderer::initializeShaders()
         // Configure vertical blur shader
         std::cout << "Configuring vertical blur shader..." << std::endl;
         verticalBlurShader->setBlurDirection(glm::vec2(0.0f, 1.0f));   // Vertical
-        verticalBlurShader->setBlurRadius(4.0f);
-        verticalBlurShader->setDepthThreshold(0.1f);
+        verticalBlurShader->setBlurRadius(2.5f);
+        verticalBlurShader->setDepthThreshold(0.08f);
         verticalBlurShader->setInputTextures(
             this,
             ssaoBuffers.blurImage1View,       // Input: horizontal blur result
             gBuffer.positionImageView,        // Depth for edge detection
+            gBufferSampler
+        );
+
+        // Configure the additional blur shaders (after first cycle completes)
+        horizontalBlurShader2->setBlurDirection(glm::vec2(1.0f, 0.0f));  // Horizontal
+        horizontalBlurShader2->setBlurRadius(4.0f);
+        horizontalBlurShader2->setDepthThreshold(0.05f);
+        horizontalBlurShader2->setInputTextures(
+            this,
+            ssaoBuffers.blurImage2View,        // Input: first cycle result
+            gBuffer.positionImageView,         // Depth for edge detection
+            gBufferSampler
+        );
+
+        verticalBlurShader2->setBlurDirection(glm::vec2(0.0f, 1.0f));   // Vertical
+        verticalBlurShader2->setBlurRadius(4.0f);
+        verticalBlurShader2->setDepthThreshold(0.05f);
+        verticalBlurShader2->setInputTextures(
+            this,
+            ssaoBuffers.blurImage1View,        // Input: second horizontal result
+            gBuffer.positionImageView,         // Depth for edge detection
             gBufferSampler
         );
 
@@ -341,6 +370,16 @@ void VulkanRenderer::cleanup()
         {
             verticalBlurShader->cleanup(device);
             verticalBlurShader.reset();
+        }
+        if (horizontalBlurShader2)
+        {
+            horizontalBlurShader2->cleanup(device);
+            horizontalBlurShader2.reset();
+        }
+        if (verticalBlurShader2)
+        {
+            verticalBlurShader2->cleanup(device);
+            verticalBlurShader2.reset();
         }
         if (compositeShader)
         {
@@ -858,17 +897,17 @@ void VulkanRenderer::createDescriptorPool()
 
     // Uniform buffers: GBuffer(1) + SSAO(1) + HorizontalBlur(1) + VerticalBlur(1) = 4 per frame
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 4);
+    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 6);
 
     // Image samplers: SSAO(4) + HorizontalBlur(2) + VerticalBlur(2) + Composite(4) = 12 per frame
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 12);
+    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 16);
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 5); // 5 shaders
+    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 7); // 5 shaders
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
     {
@@ -1014,7 +1053,35 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
     verticalBlurShader->recordCommands(commandBuffer, currentFrame);
     vkCmdEndRenderPass(commandBuffer);
 
-    // PASS 5: Final composite to screen
+    // PASS 5: Second Horizontal Pass (blur2 → blur1)
+    VkRenderPassBeginInfo blurRenderPassInfo3{};
+    blurRenderPassInfo3.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    blurRenderPassInfo3.renderPass = blurRenderPass;
+    blurRenderPassInfo3.framebuffer = blurFramebuffers1[imageIndex];
+    blurRenderPassInfo3.renderArea.offset = { 0, 0 };
+    blurRenderPassInfo3.renderArea.extent = swapChainExtent;
+    blurRenderPassInfo3.clearValueCount = 1;
+    blurRenderPassInfo3.pClearValues = &blurClearValue;  // Reuse existing blurClearValue
+
+    vkCmdBeginRenderPass(commandBuffer, &blurRenderPassInfo3, VK_SUBPASS_CONTENTS_INLINE);
+    horizontalBlurShader2->recordCommands(commandBuffer, currentFrame);
+    vkCmdEndRenderPass(commandBuffer);
+
+    // PASS 6: Second Vertical Pass (blur1 → blur2)
+    VkRenderPassBeginInfo blurRenderPassInfo4{};
+    blurRenderPassInfo4.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    blurRenderPassInfo4.renderPass = blurRenderPass;
+    blurRenderPassInfo4.framebuffer = blurFramebuffers2[imageIndex];
+    blurRenderPassInfo4.renderArea.offset = { 0, 0 };
+    blurRenderPassInfo4.renderArea.extent = swapChainExtent;
+    blurRenderPassInfo4.clearValueCount = 1;
+    blurRenderPassInfo4.pClearValues = &blurClearValue;  // Reuse existing blurClearValue
+
+    vkCmdBeginRenderPass(commandBuffer, &blurRenderPassInfo4, VK_SUBPASS_CONTENTS_INLINE);
+    verticalBlurShader2->recordCommands(commandBuffer, currentFrame);
+    vkCmdEndRenderPass(commandBuffer);
+
+    // PASS 7: Final composite to screen
     VkRenderPassBeginInfo screenRenderPassInfo{};
     screenRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     screenRenderPassInfo.renderPass = renderPass;
