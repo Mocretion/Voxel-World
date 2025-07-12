@@ -157,10 +157,10 @@ private:
     bool markChunkForMeshing(int chunkX, int chunkY, int chunkZ);
 
     // Optimized worker methods
-    void generateChunksWorker(int threadId);
+    void generateChunksWorker(int threadId, PerlinNoise noise);
     void meshChunksWorker(int threadId);
     void processMeshBatch(ThreadWorkBatch& batch, int threadId);
-    void processGenerationBatch(ThreadWorkBatch& batch, int threadId);
+    void processGenerationBatch(ThreadWorkBatch& batch, int threadId, PerlinNoise noise);
 
     // Spatial locality helpers
     void sortChunksByDistance(std::vector<std::tuple<int, int, int>>& chunks, int centerX, int centerY, int centerZ);

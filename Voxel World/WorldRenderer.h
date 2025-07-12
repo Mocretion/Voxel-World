@@ -40,7 +40,7 @@ private:
     ChunkManager chunkManager;
 
     // NEW: Infinite terrain settings
-    int renderDistance = 3;  // How many chunks in each direction to keep loaded
+    int renderDistance = 1;  // How many chunks in each direction to keep loaded
 	const int ADD_CALCULATION_DISTANCE = 2;  // How many chunks to calculate around the player
     glm::ivec3 currentPlayerChunk = glm::ivec3(0, 0, 0);  // Which chunk the player is currently in
     glm::ivec3 lastUpdateChunk = glm::ivec3(INT_MAX, INT_MAX, INT_MAX);  // Last chunk where we updated terrain

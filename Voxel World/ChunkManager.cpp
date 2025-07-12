@@ -300,13 +300,15 @@ void ChunkManager::generateChunks(int maxUpdates)
     // Start generation workers
     for (int i = 0; i < GENERATION_THREAD_COUNT; ++i)
     {
-        generationWorkers.emplace_back([this, i]() {
-            generateChunksWorker(i);
+		PerlinNoise noiseGenerator(12345);
+
+        generationWorkers.emplace_back([this, i, noiseGenerator]() {
+            generateChunksWorker(i, noiseGenerator);
         });
     }
 }
 
-void ChunkManager::generateChunksWorker(int threadId)
+void ChunkManager::generateChunksWorker(int threadId, PerlinNoise noise)
 {
     ThreadWorkBatch batch;
 
@@ -334,7 +336,7 @@ void ChunkManager::generateChunksWorker(int threadId)
         }
 
         // Process the batch
-        processGenerationBatch(batch, threadId);
+        processGenerationBatch(batch, threadId, noise);
     }
 
     // Mark thread as finished
@@ -346,7 +348,7 @@ void ChunkManager::generateChunksWorker(int threadId)
     }
 }
 
-void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
+void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId, PerlinNoise noise)
 {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -369,6 +371,8 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
 
         // Allocate and generate chunk (now uses stack allocation internally)
         size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkY, chunkZ, &noiseGenerator);
+
+        chunkPool.chunks[poolIndex]->generateTerrain(&noise);
 
         // Add to index mapping
         {

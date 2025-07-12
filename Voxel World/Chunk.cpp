@@ -18,47 +18,61 @@ Chunk::Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise)
     // Reserve space for mesh data - larger chunks will need more space
     vertices.reserve(2000);
     indices.reserve(3000);
+}
 
-    if (noiseGenerator)
+void Chunk::generateTerrain(PerlinNoise* noise)
+{
+    if (noise)
     {
+        noiseGenerator = noise;
         generate3DTerrain();
     }
 }
 
 void Chunk::generate3DTerrain()
 {
+    int surfaceHeight[CHUNK_SIZE][CHUNK_SIZE];
+
+    for (int x = 0; x < CHUNK_SIZE; x++)
+    {
+        int worldX = chunkX * CHUNK_SIZE + x;  // Convert local coordinates to world coordinates
+
+        for (int z = 0; z < CHUNK_SIZE; z++)
+        {
+            int worldZ = chunkZ * CHUNK_SIZE + z;
+            float n = noiseGenerator->octaveNoise2D(worldX * 0.01f, worldZ * 0.01f, 6, 0.5f, 1.0f);
+            surfaceHeight[x][z] = static_cast<int>(32 + n * 48);
+
+        }
+    }
+
     // Generate 3D terrain based on world coordinates
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
+        int worldX = chunkX * CHUNK_SIZE + x;  // Convert local coordinates to world coordinates
+
         for (int y = 0; y < CHUNK_SIZE; y++)
         {
+            int worldY = chunkY * CHUNK_SIZE + y;
+
             for (int z = 0; z < CHUNK_SIZE; z++)
             {
-                // Convert local coordinates to world coordinates
-                int worldX = chunkX * CHUNK_SIZE + x;
-                int worldY = chunkY * CHUNK_SIZE + y;
                 int worldZ = chunkZ * CHUNK_SIZE + z;
-
-                // Generate surface height using 2D noise
-                float noiseValue = noiseGenerator->octaveNoise2D(
-                    worldX * 0.01f, worldZ * 0.01f, 6, 0.5f, 1.0f);
-
-                int surfaceHeight = static_cast<int>(32 + noiseValue * 48); // Surface around Y=32-80
 
                 // Determine what material should be at this world position
                 bool shouldHaveCube = false;
 
-                if (worldY < surfaceHeight - 5)
+                if (worldY < surfaceHeight[x][z] - 5)
                 {
                     // Deep underground - solid stone
                     shouldHaveCube = true;
                 }
-                else if (worldY < surfaceHeight)
+                else if (worldY < surfaceHeight[x][z])
                 {
                     // Near surface - dirt/stone
                     shouldHaveCube = true;
                 }
-                else if (worldY == surfaceHeight)
+                else if (worldY == surfaceHeight[x][z])
                 {
                     // Surface level - grass/sand
                     shouldHaveCube = true;
@@ -69,7 +83,7 @@ void Chunk::generate3DTerrain()
                     shouldHaveCube = false;
 
                     // Add some floating islands or structures for chunks high above surface
-                    if (worldY > surfaceHeight + 100)
+                    if (worldY > surfaceHeight[x][z] + 100)
                     {
                         float islandNoise = noiseGenerator->octaveNoise3D(
                             worldX * 0.02f, worldY * 0.02f, worldZ * 0.02f, 4, 0.6f, 1.0f);
@@ -78,7 +92,7 @@ void Chunk::generate3DTerrain()
                 }
 
                 // Add cave systems in underground chunks
-                if (shouldHaveCube && worldY < surfaceHeight - 10)
+                if (shouldHaveCube && worldY < surfaceHeight[x][z] - 10)
                 {
                     float caveNoise = noiseGenerator->octaveNoise3D(
                         worldX * 0.03f, worldY * 0.03f, worldZ * 0.03f, 3, 0.5f, 1.0f);
@@ -167,8 +181,8 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
 
     vertices.clear();
     indices.clear();
-    vertices.reserve(2000);  // Increased reserve for larger chunks
-    indices.reserve(3000);   // Increased reserve for larger chunks
+    vertices.reserve(10000);  // Increased reserve for larger chunks
+    indices.reserve(15000);   // Increased reserve for larger chunks
 
     // Use greedy meshing instead of per-cube meshing
     generateGreedyMesh(manager, debug);

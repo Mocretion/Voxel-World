@@ -21,6 +21,8 @@ public:
     // Constructor - creates a chunk at the given 3D world position
     Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise = nullptr);
 
+    void generateTerrain(PerlinNoise* noise);
+
     // Generate mesh with greedy meshing
     void generateMeshWithManager(ChunkManager* manager, bool debug);
 
