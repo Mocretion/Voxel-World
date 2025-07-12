@@ -7,8 +7,9 @@
 #include <omp.h>
 #include <queue>
 #include <numeric>  // For std::iota
+#include <FastNoise\FastNoise.h>
 
-ChunkManager::ChunkManager() : noiseGenerator(12345)
+ChunkManager::ChunkManager()
 {
     // Pre-allocate chunk pool for better memory locality
     chunkPool.chunks.reserve(INITIAL_POOL_SIZE);
@@ -50,7 +51,7 @@ ChunkManager::~ChunkManager()
 // CHUNK POOL IMPLEMENTATION (SIMPLIFIED)
 // ============================================================================
 
-size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise)
+size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ)
 {
     std::lock_guard<std::mutex> lock(poolMutex);
 
@@ -63,7 +64,7 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ
         freeSlots.pop_back();
 
         // Create new chunk in the existing slot
-        chunks[index] = std::make_unique<Chunk>(chunkX, chunkY, chunkZ, noise);
+        chunks[index] = std::make_unique<Chunk>(chunkX, chunkY, chunkZ);
         allocated[index] = true;
     }
     else
@@ -79,7 +80,7 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ
             allocated.resize(newSize, false);
         }
 
-        chunks[index] = std::make_unique<Chunk>(chunkX, chunkY, chunkZ, noise);
+        chunks[index] = std::make_unique<Chunk>(chunkX, chunkY, chunkZ);
         allocated[index] = true;
     }
 
@@ -300,15 +301,14 @@ void ChunkManager::generateChunks(int maxUpdates)
     // Start generation workers
     for (int i = 0; i < GENERATION_THREAD_COUNT; ++i)
     {
-		PerlinNoise noiseGenerator(12345);
 
-        generationWorkers.emplace_back([this, i, noiseGenerator]() {
-            generateChunksWorker(i, noiseGenerator);
+        generationWorkers.emplace_back([this, i]() {
+            generateChunksWorker(i);
         });
     }
 }
 
-void ChunkManager::generateChunksWorker(int threadId, PerlinNoise noise)
+void ChunkManager::generateChunksWorker(int threadId)
 {
     ThreadWorkBatch batch;
 
@@ -336,7 +336,7 @@ void ChunkManager::generateChunksWorker(int threadId, PerlinNoise noise)
         }
 
         // Process the batch
-        processGenerationBatch(batch, threadId, noise);
+        processGenerationBatch(batch, threadId);
     }
 
     // Mark thread as finished
@@ -348,7 +348,7 @@ void ChunkManager::generateChunksWorker(int threadId, PerlinNoise noise)
     }
 }
 
-void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId, PerlinNoise noise)
+void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
 {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -370,9 +370,9 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId, 
         }
 
         // Allocate and generate chunk (now uses stack allocation internally)
-        size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkY, chunkZ, &noiseGenerator);
+        size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkY, chunkZ);
 
-        chunkPool.chunks[poolIndex]->generateTerrain(&noise);
+        chunkPool.chunks[poolIndex]->generateTerrain();
 
         // Add to index mapping
         {
@@ -471,15 +471,15 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
     if (!batch.coordTuples.empty())
     {
         // Sort by distance from first chunk in batch
-        auto firstCoords = batch.coordTuples[0];
+        auto& firstCoords = batch.coordTuples[0];
         int centerX = std::get<0>(firstCoords);
         int centerY = std::get<1>(firstCoords);
         int centerZ = std::get<2>(firstCoords);
 
         std::sort(sortedIndices.begin(), sortedIndices.end(),
             [this, &batch, centerX, centerY, centerZ](size_t a, size_t b) {
-                auto coordsA = batch.coordTuples[a];
-                auto coordsB = batch.coordTuples[b];
+                auto& coordsA = batch.coordTuples[a];
+                auto& coordsB = batch.coordTuples[b];
                 int distA = calculateChunkDistance(std::get<0>(coordsA), std::get<1>(coordsA), std::get<2>(coordsA), centerX, centerY, centerZ);
                 int distB = calculateChunkDistance(std::get<0>(coordsB), std::get<1>(coordsB), std::get<2>(coordsB), centerX, centerY, centerZ);
                 return distA < distB;
@@ -513,7 +513,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
         std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
         for (const auto& pair : chunkKeyToPoolIndex)
         {
-            auto coords = pair.first;
+            auto& coords = pair.first;
             const Chunk* chunk = chunkPool.getChunk(pair.second);
 
             if (!chunk) continue;
@@ -538,7 +538,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
     // Remove distant chunks
     {
         std::unique_lock<std::shared_mutex> lock(poolIndexMutex);
-        for (auto key : chunkDataToRemove)
+        for (auto& key : chunkDataToRemove)
         {
             auto it = chunkKeyToPoolIndex.find(key);
             if (it != chunkKeyToPoolIndex.end())
@@ -552,7 +552,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
             }
         }
 
-        for (auto key : chunkMeshToRemove)
+        for (auto& key : chunkMeshToRemove)
         {
             auto it = chunkKeyToPoolIndex.find(key);
             if (it != chunkKeyToPoolIndex.end())

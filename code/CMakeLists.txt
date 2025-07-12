@@ -1,8 +1,20 @@
 cmake_minimum_required(VERSION 3.16)
-project(VoxelWorld)  # Changed from VulkanApp to VoxelWorld
+project("Voxel World")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_TOOLCHAIN_FILE "D:/VS C# Projects/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
+if (POLICY CMP0141)
+  cmake_policy(SET CMP0141 NEW)
+  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
+endif()
+
+add_subdirectory(external/FastNoise2)
+
+target_include_directories(${PROJECT_NAME}
+    PRIVATE
+    external/FastNoise2/src
+)
 
 find_package(OpenMP REQUIRED)
 
@@ -54,6 +66,7 @@ target_link_libraries(${PROJECT_NAME}
     SDL2::SDL2
     SDL2::SDL2main
     glm::glm  # Added GLM since you're using it in Vertex.h
+    FastNoise2
 )
 
 # Set subsystem to console (optional, for debugging)

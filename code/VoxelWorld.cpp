@@ -1,8 +1,8 @@
 #include "VoxelWorld.h"
-#include "VulkanRenderer.h"
-#include "InputManager.h"
-#include "WorldRenderer.h"
-#include "Camera.h"
+#include "rendering/vulkan/VulkanRenderer.h"
+#include "user/InputManager.h"
+#include "rendering/WorldRenderer.h"
+#include "user/Camera.h"
 #include <iostream>
 #include <stdexcept>
 

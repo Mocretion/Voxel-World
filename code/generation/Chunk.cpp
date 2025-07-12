@@ -5,12 +5,12 @@
 #include <iostream>
 #include <chrono>
 #include <cstring>
-
+#include "PerlinNoise.h"
 // Define the cube size
 const float Chunk::CUBE_SIZE = 1.0f;
 
-Chunk::Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise)
-    : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ), noiseGenerator(noise)
+Chunk::Chunk(int chunkX, int chunkY, int chunkZ)
+    : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ)
 {
     // Zero out arrays super fast
     std::memset(cubes, false, sizeof(cubes));
@@ -20,59 +20,56 @@ Chunk::Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise)
     indices.reserve(3000);
 }
 
-void Chunk::generateTerrain(PerlinNoise* noise)
+void Chunk::generateTerrain()
 {
-    if (noise)
-    {
-        noiseGenerator = noise;
-        generate3DTerrain();
-    }
+    generate3DTerrain();
 }
 
 void Chunk::generate3DTerrain()
 {
-    int surfaceHeight[CHUNK_SIZE][CHUNK_SIZE];
+	auto noiseHeightGen = PerlinNoise::perlinWithFbm(0.5f, 0.5f, 3, 0.5f); 
+	auto caveNoiseGen = PerlinNoise::perlinWithFbm(0.5f, 2.0f, 2, 0.5f); 
+	auto skyNoiseGen = PerlinNoise::perlinWithFbm(0.5f, 0.5f, 3, 0.5f);
 
-    for (int x = 0; x < CHUNK_SIZE; x++)
-    {
-        int worldX = chunkX * CHUNK_SIZE + x;  // Convert local coordinates to world coordinates
+	int chunkStartX = chunkX * CHUNK_SIZE;
+	int chunkStartY = chunkY * CHUNK_SIZE;
+	int chunkStartZ = chunkZ * CHUNK_SIZE;
 
-        for (int z = 0; z < CHUNK_SIZE; z++)
-        {
-            int worldZ = chunkZ * CHUNK_SIZE + z;
-            float n = noiseGenerator->octaveNoise2D(worldX * 0.01f, worldZ * 0.01f, 6, 0.5f, 1.0f);
-            surfaceHeight[x][z] = static_cast<int>(32 + n * 48);
+    noiseHeightGen->GenUniformGrid2D(surfaceHeight, chunkStartX, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, 0.01, 12345);
+    caveNoiseGen->GenUniformGrid3D(caveMap, chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.1, 23456);
+    skyNoiseGen->GenUniformGrid3D(skyMap, chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.08, 34567);
 
-        }
-    }
+    int heightIndex = 0;
+    int caveIndex = 0;
+    int skyIndex = 0;
 
     // Generate 3D terrain based on world coordinates
-    for (int x = 0; x < CHUNK_SIZE; x++)
+    for (int z = 0; z < CHUNK_SIZE; z++)
     {
-        int worldX = chunkX * CHUNK_SIZE + x;  // Convert local coordinates to world coordinates
-
         for (int y = 0; y < CHUNK_SIZE; y++)
         {
-            int worldY = chunkY * CHUNK_SIZE + y;
+            int worldY = chunkStartY + y;  // Convert local coordinates to world coordinates
+            heightIndex = z * CHUNK_SIZE;
 
-            for (int z = 0; z < CHUNK_SIZE; z++)
+            for (int x = 0; x < CHUNK_SIZE; x++)
             {
-                int worldZ = chunkZ * CHUNK_SIZE + z;
+				float noiseHeight = surfaceHeight[heightIndex++] * 48;
+				float caveNoise = caveMap[caveIndex++];
+				float skyNoise = skyMap[skyIndex++];
 
-                // Determine what material should be at this world position
                 bool shouldHaveCube = false;
 
-                if (worldY < surfaceHeight[x][z] - 5)
+                if (worldY < noiseHeight - 5)
                 {
                     // Deep underground - solid stone
                     shouldHaveCube = true;
                 }
-                else if (worldY < surfaceHeight[x][z])
+                else if (worldY < noiseHeight)
                 {
                     // Near surface - dirt/stone
                     shouldHaveCube = true;
                 }
-                else if (worldY == surfaceHeight[x][z])
+                else if (worldY == noiseHeight)
                 {
                     // Surface level - grass/sand
                     shouldHaveCube = true;
@@ -83,27 +80,22 @@ void Chunk::generate3DTerrain()
                     shouldHaveCube = false;
 
                     // Add some floating islands or structures for chunks high above surface
-                    if (worldY > surfaceHeight[x][z] + 100)
+                    if (worldY > noiseHeight + 100)
                     {
-                        float islandNoise = noiseGenerator->octaveNoise3D(
-                            worldX * 0.02f, worldY * 0.02f, worldZ * 0.02f, 4, 0.6f, 1.0f);
-                        shouldHaveCube = islandNoise > 0.3f;
+                        shouldHaveCube = skyNoise > 0.3f;
                     }
                 }
 
                 // Add cave systems in underground chunks
-                if (shouldHaveCube && worldY < surfaceHeight[x][z] - 10)
+                if (shouldHaveCube && worldY < noiseHeight - 10)
                 {
-                    float caveNoise = noiseGenerator->octaveNoise3D(
-                        worldX * 0.03f, worldY * 0.03f, worldZ * 0.03f, 3, 0.5f, 1.0f);
-
                     if (caveNoise > 0.4f)
                     {
                         shouldHaveCube = false; // Create cave
                     }
                 }
 
-                cubes[x][y][z] = shouldHaveCube;
+                setCubeAtCoord(x, y, z, shouldHaveCube);
             }
         }
     }
@@ -117,7 +109,7 @@ bool Chunk::hasCubeAt(int x, int y, int z) const
     {
         return false;
     }
-    return cubes[x][y][z];
+	return getCubeAtCoord(x, y, z);
 }
 
 void Chunk::setCubeAt(int x, int y, int z, bool exists)
@@ -126,7 +118,7 @@ void Chunk::setCubeAt(int x, int y, int z, bool exists)
         y >= 0 && y < MAX_HEIGHT &&
         z >= 0 && z < CHUNK_SIZE)
     {
-        cubes[x][y][z] = exists;
+        setCubeAtCoord(x, y, z, exists);
     }
 }
 

@@ -73,7 +73,7 @@ private:
         std::atomic<size_t> nextSlot{ 0 };            // Thread-safe slot allocation
         mutable std::mutex poolMutex;               // Protect pool operations
 
-        size_t allocateChunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise);
+        size_t allocateChunk(int chunkX, int chunkY, int chunkZ);
         void deallocateChunk(size_t index);
         Chunk* getChunk(size_t index);
         const Chunk* getChunk(size_t index) const;
@@ -157,10 +157,10 @@ private:
     bool markChunkForMeshing(int chunkX, int chunkY, int chunkZ);
 
     // Optimized worker methods
-    void generateChunksWorker(int threadId, PerlinNoise noise);
+    void generateChunksWorker(int threadId);
     void meshChunksWorker(int threadId);
     void processMeshBatch(ThreadWorkBatch& batch, int threadId);
-    void processGenerationBatch(ThreadWorkBatch& batch, int threadId, PerlinNoise noise);
+    void processGenerationBatch(ThreadWorkBatch& batch, int threadId);
 
     // Spatial locality helpers
     void sortChunksByDistance(std::vector<std::tuple<int, int, int>>& chunks, int centerX, int centerY, int centerZ);

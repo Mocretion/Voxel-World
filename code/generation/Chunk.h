@@ -19,9 +19,9 @@ public:
     static const float CUBE_SIZE;      // Size of each cube (will define in .cpp)
 
     // Constructor - creates a chunk at the given 3D world position
-    Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise = nullptr);
+    Chunk(int chunkX, int chunkY, int chunkZ);
 
-    void generateTerrain(PerlinNoise* noise);
+    void generateTerrain();
 
     // Generate mesh with greedy meshing
     void generateMeshWithManager(ChunkManager* manager, bool debug);
@@ -57,12 +57,23 @@ public:
 
 private:
     int chunkX, chunkY, chunkZ;
-    PerlinNoise* noiseGenerator;
 
     static const int MAX_HEIGHT = 64;
 
     // Stack-allocated arrays for fast access
-    bool cubes[CHUNK_SIZE][MAX_HEIGHT][CHUNK_SIZE];
+    bool cubes[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+    bool getCubeAtCoord  (int x, int y, int z) const
+    {
+        return cubes[(z * CHUNK_SIZE * CHUNK_SIZE) + (y * CHUNK_SIZE) + x];
+	}
+    void setCubeAtCoord(int x, int y, int z, bool exists)
+    {
+        cubes[(z * CHUNK_SIZE * CHUNK_SIZE) + (y * CHUNK_SIZE) + x] = exists;
+	}
+
+    float surfaceHeight[CHUNK_SIZE * CHUNK_SIZE];
+    float caveMap[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+    float skyMap[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
 
     // Mesh data
     std::vector<Vertex> vertices;

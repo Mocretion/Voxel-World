@@ -1,5 +1,6 @@
 .vs/*
-Voxel World/build/*
-Voxel World/x64/*
+build/*
 x64/*
-/Voxel World/.vs
+external/*
+out/*
+code/.vs/*
