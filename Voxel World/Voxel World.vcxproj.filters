@@ -37,6 +37,12 @@
     <Filter Include="Source Files\generation">
       <UniqueIdentifier>{2287b810-1a4a-4972-ad68-0e304b8fa758}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\shader">
+      <UniqueIdentifier>{20011554-58ad-4887-9a82-34574eda6df8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\renderer\shader">
+      <UniqueIdentifier>{85c7f566-cbb2-4e4e-848d-c19132a00807}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />
@@ -46,9 +52,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="VoxelWorld.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Chunk.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Camera.cpp">
@@ -75,8 +78,23 @@
     <ClCompile Include="ChunkManager.cpp">
       <Filter>Source Files\generation</Filter>
     </ClCompile>
-    <ClCompile Include="GBuffer.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="SSAOBlurShader.cpp">
+      <Filter>Source Files\renderer\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="SSAOShader.cpp">
+      <Filter>Source Files\renderer\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="Shader.cpp">
+      <Filter>Source Files\renderer\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="GBufferShader.cpp">
+      <Filter>Source Files\renderer\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="CompositeShader.cpp">
+      <Filter>Source Files\renderer\shader</Filter>
+    </ClCompile>
+    <ClCompile Include="Chunk.cpp">
+      <Filter>Source Files\generation</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -94,6 +112,24 @@
       <Filter>Source Files\shaders</Filter>
     </None>
     <None Include="copy_vertex.vert">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="ssao_vertex.vert">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="final_composite_fragment.frag">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="ssao_blur_fragment.frag">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="ssao_blur_vertex.vert">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="ssao_fragment.frag">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="ssao_only_fragment.frag">
       <Filter>Source Files\shaders</Filter>
     </None>
   </ItemGroup>
@@ -131,8 +167,20 @@
     <ClInclude Include="ChunkManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="GBuffer.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="SSAOShader.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="CompositeShader.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="GBufferShader.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="SSAOBlurShader.h">
+      <Filter>Header Files\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="Shader.h">
+      <Filter>Header Files\shader</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

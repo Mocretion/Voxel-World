@@ -306,12 +306,6 @@ void VulkanRenderer::updateUniforms(const UniformBufferObject& ubo)
 
 void VulkanRenderer::updateSSAOUniforms(const Camera& camera, float aspectRatio)
 {
-    static int updateCount = 0;
-    if (updateCount++ % 60 == 0)
-    {  // Print every 60 frames
-        std::cout << "VulkanRenderer: Updating SSAO uniforms, aspect ratio: " << aspectRatio << std::endl;
-    }
-
     if (ssaoShader)
     {
         ssaoShader->updateSSAOParams(camera, aspectRatio, swapChainExtent);

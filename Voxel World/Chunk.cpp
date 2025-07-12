@@ -9,44 +9,87 @@
 // Define the cube size
 const float Chunk::CUBE_SIZE = 1.0f;
 
-Chunk::Chunk(int chunkX, int chunkZ, PerlinNoise* noise)
-    : chunkX(chunkX), chunkZ(chunkZ), noiseGenerator(noise)
+Chunk::Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise)
+    : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ), noiseGenerator(noise)
 {
     // Zero out arrays super fast
     std::memset(cubes, false, sizeof(cubes));
-    std::memset(heights, 0, sizeof(heights));
 
-    // Reserve space for mesh data
-    vertices.reserve(900);
-    indices.reserve(1500);
+    // Reserve space for mesh data - larger chunks will need more space
+    vertices.reserve(2000);
+    indices.reserve(3000);
 
     if (noiseGenerator)
     {
-        generateTerrain();
+        generate3DTerrain();
     }
 }
 
-void Chunk::generateTerrain()
+void Chunk::generate3DTerrain()
 {
-    // Generate height map using Perlin noise (same as before)
+    // Generate 3D terrain based on world coordinates
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
-        for (int z = 0; z < CHUNK_SIZE; z++)
+        for (int y = 0; y < CHUNK_SIZE; y++)
         {
-            float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
-            float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
-
-            float noiseValue = noiseGenerator->octaveNoise2D(
-                worldX * 0.01f, worldZ * 0.01f, 6, 0.5f, 1.0f);
-
-            int height = static_cast<int>(10 + (noiseValue + 1.0f) * 10.0f);
-            height = std::max(1, std::min(height, MAX_HEIGHT - 1));
-
-            heights[x][z] = height;
-
-            for (int y = 0; y < height; y++)
+            for (int z = 0; z < CHUNK_SIZE; z++)
             {
-                cubes[x][y][z] = true;
+                // Convert local coordinates to world coordinates
+                int worldX = chunkX * CHUNK_SIZE + x;
+                int worldY = chunkY * CHUNK_SIZE + y;
+                int worldZ = chunkZ * CHUNK_SIZE + z;
+
+                // Generate surface height using 2D noise
+                float noiseValue = noiseGenerator->octaveNoise2D(
+                    worldX * 0.01f, worldZ * 0.01f, 6, 0.5f, 1.0f);
+
+                int surfaceHeight = static_cast<int>(32 + noiseValue * 48); // Surface around Y=32-80
+
+                // Determine what material should be at this world position
+                bool shouldHaveCube = false;
+
+                if (worldY < surfaceHeight - 5)
+                {
+                    // Deep underground - solid stone
+                    shouldHaveCube = true;
+                }
+                else if (worldY < surfaceHeight)
+                {
+                    // Near surface - dirt/stone
+                    shouldHaveCube = true;
+                }
+                else if (worldY == surfaceHeight)
+                {
+                    // Surface level - grass/sand
+                    shouldHaveCube = true;
+                }
+                else
+                {
+                    // Above surface - air (with potential caves/structures)
+                    shouldHaveCube = false;
+
+                    // Add some floating islands or structures for chunks high above surface
+                    if (worldY > surfaceHeight + 100)
+                    {
+                        float islandNoise = noiseGenerator->octaveNoise3D(
+                            worldX * 0.02f, worldY * 0.02f, worldZ * 0.02f, 4, 0.6f, 1.0f);
+                        shouldHaveCube = islandNoise > 0.3f;
+                    }
+                }
+
+                // Add cave systems in underground chunks
+                if (shouldHaveCube && worldY < surfaceHeight - 10)
+                {
+                    float caveNoise = noiseGenerator->octaveNoise3D(
+                        worldX * 0.03f, worldY * 0.03f, worldZ * 0.03f, 3, 0.5f, 1.0f);
+
+                    if (caveNoise > 0.4f)
+                    {
+                        shouldHaveCube = false; // Create cave
+                    }
+                }
+
+                cubes[x][y][z] = shouldHaveCube;
             }
         }
     }
@@ -73,35 +116,34 @@ void Chunk::setCubeAt(int x, int y, int z, bool exists)
     }
 }
 
-int Chunk::getHeightAt(int x, int z) const
+glm::vec3 Chunk::getTerrainColor(int worldY) const
 {
-    if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE)
+    if (worldY < 0)
     {
-        return heights[x][z];
+        return glm::vec3(0.4f, 0.3f, 0.2f); // Deep underground - dark brown/stone
     }
-    return 0;
-}
-
-glm::vec3 Chunk::getTerrainColor(int height) const
-{
-    if (height < 5)
+    else if (worldY < 32)
     {
-        return glm::vec3(0.9f, 0.8f, 0.6f); // Beach/sand
+        return glm::vec3(0.6f, 0.4f, 0.2f); // Underground - brown dirt/stone
     }
-    else if (height < 25)
+    else if (worldY < 80)
     {
-        return glm::vec3(0.095f, 0.871f, 0.302f); // Grass
+        return glm::vec3(0.095f, 0.871f, 0.302f); // Surface - green grass
+    }
+    else if (worldY < 120)
+    {
+        return glm::vec3(0.5f, 0.5f, 0.5f); // Mountain - gray stone
     }
     else
     {
-        return glm::vec3(0.9f, 0.9f, 0.95f); // Snow
+        return glm::vec3(0.9f, 0.9f, 0.95f); // High altitude - white snow/clouds
     }
 }
 
 void Chunk::localToWorld(int localX, int localY, int localZ, int& worldX, int& worldY, int& worldZ) const
 {
     worldX = chunkX * CHUNK_SIZE + localX;
-    worldY = localY;
+    worldY = chunkY * CHUNK_SIZE + localY;
     worldZ = chunkZ * CHUNK_SIZE + localZ;
 }
 
@@ -110,7 +152,7 @@ bool Chunk::hasCubeAtWorld(int worldX, int worldY, int worldZ, ChunkManager* man
     if (manager == nullptr)
     {
         int localX = worldX - (chunkX * CHUNK_SIZE);
-        int localY = worldY;
+        int localY = worldY - (chunkY * CHUNK_SIZE);
         int localZ = worldZ - (chunkZ * CHUNK_SIZE);
         return hasCubeAt(localX, localY, localZ);
     }
@@ -125,8 +167,8 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
 
     vertices.clear();
     indices.clear();
-    vertices.reserve(1000);
-    indices.reserve(1500);
+    vertices.reserve(2000);  // Increased reserve for larger chunks
+    indices.reserve(3000);   // Increased reserve for larger chunks
 
     // Use greedy meshing instead of per-cube meshing
     generateGreedyMesh(manager, debug);
@@ -137,16 +179,16 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
     if (debug)
     {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-        std::cout << "[GREEDY] Chunk (" << chunkX << ", " << chunkZ
+        std::cout << "[GREEDY] Chunk (" << chunkX << ", " << chunkY << ", " << chunkZ
             << ") meshed in " << duration.count() << "ms with "
-            << vertices.size() << " vertices (was much more without greedy!)" << std::endl;
+            << vertices.size() << " vertices (64x64x64 chunk)" << std::endl;
     }
 }
 
 void Chunk::generateGreedyMesh(ChunkManager* manager, bool debug)
 {
     std::vector<Quad> allQuads;
-    allQuads.reserve(1000); // Pre-allocate for performance
+    allQuads.reserve(2000); // Increased pre-allocation for larger chunks
 
     // Generate quads for each axis and direction
     // X-axis: Left (-X) and Right (+X) faces
@@ -163,8 +205,8 @@ void Chunk::generateGreedyMesh(ChunkManager* manager, bool debug)
 
     if (debug)
     {
-        std::cout << "[GREEDY] Generated " << allQuads.size() << " quads for chunk ("
-            << chunkX << ", " << chunkZ << ")" << std::endl;
+        std::cout << "[GREEDY] Generated " << allQuads.size() << " quads for 64x64x64 chunk ("
+            << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
     }
 
     // Convert all quads to actual mesh data
@@ -174,7 +216,6 @@ void Chunk::generateGreedyMesh(ChunkManager* manager, bool debug)
 void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager, std::vector<Quad>& quads)
 {
     // Create a 3D processed array to track which faces we've already included in quads
-    // This prevents us from creating overlapping quads
     std::vector<std::vector<std::vector<bool>>> processed(
         CHUNK_SIZE, std::vector<std::vector<bool>>(
             MAX_HEIGHT, std::vector<bool>(CHUNK_SIZE, false)));
@@ -208,7 +249,7 @@ void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager,
 
                 // Calculate world position of bottom-left corner of the quad
                 float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
-                float worldY = y * CUBE_SIZE;
+                float worldY = (chunkY * CHUNK_SIZE + y) * CUBE_SIZE;
                 float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
                 // Adjust position based on which face we're rendering
@@ -247,18 +288,11 @@ bool Chunk::shouldRenderFace(int x, int y, int z, int direction, ChunkManager* m
 
 glm::vec3 Chunk::getFaceColor(int x, int y, int z, int direction) const
 {
-    // For now, all faces use the same height-based color
-    // In the future, you could have different colors per face direction
-    glm::vec3 baseColor = getTerrainColor(y);
+    // Calculate world Y position for color determination
+    int worldY = chunkY * CHUNK_SIZE + y;
 
-    // Add some noise variation to make terrain less uniform
-    float worldX = (chunkX * CHUNK_SIZE + x) * CUBE_SIZE;
-    float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
-
-    //float variation = (noiseGenerator->noise2D(worldX * 0.1f, worldZ * 0.1f) + 1) * 0.5f * 0.4f;
-
-    //baseColor += glm::vec3(variation);
-    //baseColor = glm::clamp(baseColor, 0.0f, 1.0f);
+    // Get color based on world Y position (altitude-based coloring)
+    glm::vec3 baseColor = getTerrainColor(worldY);
 
     return baseColor;
 }
@@ -353,7 +387,6 @@ glm::vec2 Chunk::expandQuad(int axis, int direction, int x, int y, int z,
 void Chunk::getAxisCoords(int axis, int x, int y, int z, int& u, int& v, int& w) const
 {
     // Convert 3D coordinates to 2D coordinates for the given axis
-    // This helps us work in 2D when creating quads
     switch (axis)
     {
     case 0: // X-axis (YZ plane)
@@ -457,7 +490,7 @@ void Chunk::addQuadToMesh(const Quad& quad)
         }
     }
 
-    // Add vertices (no more AO values!)
+    // Add vertices
     vertices.push_back({ v0, quad.color, normal });
     vertices.push_back({ v1, quad.color, normal });
     vertices.push_back({ v2, quad.color, normal });

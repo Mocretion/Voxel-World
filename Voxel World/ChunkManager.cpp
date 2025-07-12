@@ -50,7 +50,7 @@ ChunkManager::~ChunkManager()
 // CHUNK POOL IMPLEMENTATION (SIMPLIFIED)
 // ============================================================================
 
-size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkZ, PerlinNoise* noise)
+size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise)
 {
     std::lock_guard<std::mutex> lock(poolMutex);
 
@@ -63,7 +63,7 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkZ, PerlinNois
         freeSlots.pop_back();
 
         // Create new chunk in the existing slot
-        chunks[index] = std::make_unique<Chunk>(chunkX, chunkZ, noise);
+        chunks[index] = std::make_unique<Chunk>(chunkX, chunkY, chunkZ, noise);
         allocated[index] = true;
     }
     else
@@ -79,7 +79,7 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkZ, PerlinNois
             allocated.resize(newSize, false);
         }
 
-        chunks[index] = std::make_unique<Chunk>(chunkX, chunkZ, noise);
+        chunks[index] = std::make_unique<Chunk>(chunkX, chunkY, chunkZ, noise);
         allocated[index] = true;
     }
 
@@ -129,13 +129,13 @@ void ChunkManager::ChunkPool::clear()
 // WORK QUEUE IMPLEMENTATION (SIMPLIFIED)
 // ============================================================================
 
-void ChunkManager::WorkQueue::push(uint64_t item)
+void ChunkManager::WorkQueue::push(std::tuple<int, int, int> item)
 {
     std::lock_guard<std::mutex> lock(queueMutex);
     items.push_back(item);
 }
 
-bool ChunkManager::WorkQueue::pop(uint64_t& item)
+bool ChunkManager::WorkQueue::pop(std::tuple<int, int, int>& item)
 {
     std::lock_guard<std::mutex> lock(queueMutex);
 
@@ -167,13 +167,13 @@ void ChunkManager::WorkQueue::clear()
     items.clear();
 }
 
-bool ChunkManager::WorkQueue::contains(uint64_t item) const
+bool ChunkManager::WorkQueue::contains(std::tuple<int, int, int> item) const
 {
     std::lock_guard<std::mutex> lock(queueMutex);
     return std::find(items.begin(), items.end(), item) != items.end();
 }
 
-bool ChunkManager::WorkQueue::remove(uint64_t item)
+bool ChunkManager::WorkQueue::remove(std::tuple<int, int, int> item)
 {
     std::lock_guard<std::mutex> lock(queueMutex);
     auto it = std::find(items.begin(), items.end(), item);
@@ -189,66 +189,54 @@ bool ChunkManager::WorkQueue::remove(uint64_t item)
 // HELPER METHODS
 // ============================================================================
 
-uint64_t ChunkManager::chunkCoordsToKey(int chunkX, int chunkZ) const
-{
-    uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(chunkX)) << 32) |
-        static_cast<uint64_t>(static_cast<uint32_t>(chunkZ));
-    return key;
-}
-
-std::pair<int, int> ChunkManager::keyToChunkCoords(uint64_t key) const
-{
-    int chunkX = static_cast<int>(static_cast<uint32_t>(key >> 32));
-    int chunkZ = static_cast<int>(static_cast<uint32_t>(key & 0xFFFFFFFF));
-    return std::make_pair(chunkX, chunkZ);
-}
-
 void ChunkManager::worldToChunkAndLocal(int worldX, int worldY, int worldZ,
-    int& chunkX, int& chunkZ,
+    int& chunkX, int& chunkY, int& chunkZ,
     int& localX, int& localY, int& localZ) const
 {
     chunkX = worldX < 0 ? (worldX - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldX / Chunk::CHUNK_SIZE;
+    chunkY = worldY < 0 ? (worldY - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldY / Chunk::CHUNK_SIZE;
     chunkZ = worldZ < 0 ? (worldZ - Chunk::CHUNK_SIZE + 1) / Chunk::CHUNK_SIZE : worldZ / Chunk::CHUNK_SIZE;
 
     localX = worldX - chunkX * Chunk::CHUNK_SIZE;
-    localY = worldY;
+    localY = worldY - chunkY * Chunk::CHUNK_SIZE;
     localZ = worldZ - chunkZ * Chunk::CHUNK_SIZE;
 
     if (localX < 0) localX += Chunk::CHUNK_SIZE;
+    if (localY < 0) localY += Chunk::CHUNK_SIZE;
     if (localZ < 0) localZ += Chunk::CHUNK_SIZE;
 }
 
-int ChunkManager::calculateChunkDistance(int x1, int z1, int x2, int z2) const
+int ChunkManager::calculateChunkDistance(int x1, int y1, int z1, int x2, int y2, int z2) const
 {
-    return std::max(std::abs(x1 - x2), std::abs(z1 - z2));
+    return std::max({ std::abs(x1 - x2), std::abs(y1 - y2), std::abs(z1 - z2) });
 }
 
-void ChunkManager::sortChunksByDistance(std::vector<std::pair<int, int>>& chunks, int centerX, int centerZ)
+void ChunkManager::sortChunksByDistance(std::vector<std::tuple<int, int, int>>& chunks, int centerX, int centerY, int centerZ)
 {
     // Sort chunks by distance for better spatial locality
     std::sort(chunks.begin(), chunks.end(),
-        [this, centerX, centerZ](const std::pair<int, int>& a, const std::pair<int, int>& b) {
-            int distA = calculateChunkDistance(a.first, a.second, centerX, centerZ);
-            int distB = calculateChunkDistance(b.first, b.second, centerX, centerZ);
+        [this, centerX, centerY, centerZ](const std::tuple<int, int, int>& a, const std::tuple<int, int, int>& b) {
+            int distA = calculateChunkDistance(std::get<0>(a), std::get<1>(a), std::get<2>(a), centerX, centerY, centerZ);
+            int distB = calculateChunkDistance(std::get<0>(b), std::get<1>(b), std::get<2>(b), centerX, centerY, centerZ);
             return distA < distB;
         });
 }
 
 // ============================================================================
-// CHUNK MANAGEMENT INTERFACE
+// CHUNK MANAGEMENT INTERFACE 
 // ============================================================================
 
-void ChunkManager::markChunksForGeneration(std::vector<std::pair<int, int>> chunks)
+void ChunkManager::markChunksForGeneration(std::vector<std::tuple<int, int, int>> chunks)
 {
     for (const auto& coords : chunks)
     {
-        markChunkForGeneration(coords.first, coords.second);
+        markChunkForGeneration(std::get<0>(coords), std::get<1>(coords), std::get<2>(coords));
     }
 }
 
-bool ChunkManager::markChunkForGeneration(int chunkX, int chunkZ)
+bool ChunkManager::markChunkForGeneration(int chunkX, int chunkY, int chunkZ)
 {
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+    auto key = std::make_tuple(chunkX, chunkY, chunkZ);
 
     // Check if chunk already exists
     {
@@ -269,17 +257,17 @@ bool ChunkManager::markChunkForGeneration(int chunkX, int chunkZ)
     return false;
 }
 
-void ChunkManager::markChunksForMeshing(std::vector<std::pair<int, int>> chunks)
+void ChunkManager::markChunksForMeshing(std::vector<std::tuple<int, int, int>> chunks)
 {
     for (const auto& coords : chunks)
     {
-        markChunkForMeshing(coords.first, coords.second);
+        markChunkForMeshing(std::get<0>(coords), std::get<1>(coords), std::get<2>(coords));
     }
 }
 
-bool ChunkManager::markChunkForMeshing(int chunkX, int chunkZ)
+bool ChunkManager::markChunkForMeshing(int chunkX, int chunkY, int chunkZ)
 {
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+    std::tuple<int, int, int> key = std::make_tuple(chunkX, chunkY, chunkZ);
 
     if (!meshingQueue.contains(key))
     {
@@ -291,7 +279,7 @@ bool ChunkManager::markChunkForMeshing(int chunkX, int chunkZ)
 }
 
 // ============================================================================
-// GENERATION SYSTEM (SIMPLIFIED - NO TLS)
+// GENERATION SYSTEM
 // ============================================================================
 
 void ChunkManager::generateChunks(int maxUpdates)
@@ -312,17 +300,17 @@ void ChunkManager::generateChunks(int maxUpdates)
     // Start generation workers
     for (int i = 0; i < GENERATION_THREAD_COUNT; ++i)
     {
-        generationWorkers.emplace_back([this]() {
-            generateChunksWorker();
+        generationWorkers.emplace_back([this, i]() {
+            generateChunksWorker(i);
         });
     }
 }
 
-void ChunkManager::generateChunksWorker()
+void ChunkManager::generateChunksWorker(int threadId)
 {
     ThreadWorkBatch batch;
 
-    std::cout << "[FAST] Generation worker started" << std::endl;
+    std::cout << "[FAST] Generation worker " << threadId << " | " << std::this_thread::get_id() << " started" << std::endl;
 
     while (!shutdownRequested.load())
     {
@@ -331,14 +319,13 @@ void ChunkManager::generateChunksWorker()
         // Collect a batch of work items
         for (size_t i = 0; i < CHUNKS_PER_BATCH; ++i)
         {
-            uint64_t chunkKey;
-            if (!generationQueue.pop(chunkKey))
+            std::tuple<int, int, int> chunkCoords;
+            if (!generationQueue.pop(chunkCoords))
             {
                 break;  // No more work
             }
 
-            auto coords = keyToChunkCoords(chunkKey);
-            batch.coordPairs.push_back(coords);
+            batch.coordTuples.push_back(chunkCoords);
         }
 
         if (batch.emptyCoords())
@@ -347,7 +334,7 @@ void ChunkManager::generateChunksWorker()
         }
 
         // Process the batch
-        processGenerationBatch(batch);
+        processGenerationBatch(batch, threadId);
     }
 
     // Mark thread as finished
@@ -359,43 +346,42 @@ void ChunkManager::generateChunksWorker()
     }
 }
 
-void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch)
+void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
 {
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    for (const auto& coords : batch.coordPairs)
+    for (const auto& coords : batch.coordTuples)
     {
-        int chunkX = coords.first;
-        int chunkZ = coords.second;
-        uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+        int chunkX = std::get<0>(coords);
+        int chunkY = std::get<1>(coords);
+        int chunkZ = std::get<2>(coords);
+
+		std::cout << "[FAST " << threadId << "] Generating chunk at(" << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
 
         // Double-check chunk doesn't exist
         {
             std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
-            if (chunkKeyToPoolIndex.find(key) != chunkKeyToPoolIndex.end())
+            if (chunkKeyToPoolIndex.find(coords) != chunkKeyToPoolIndex.end())
             {
                 continue;  // Chunk was created by another thread
             }
         }
 
         // Allocate and generate chunk (now uses stack allocation internally)
-        size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkZ, &noiseGenerator);
+        size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkY, chunkZ, &noiseGenerator);
 
         // Add to index mapping
         {
             std::unique_lock<std::shared_mutex> lock(poolIndexMutex);
-            chunkKeyToPoolIndex[key] = poolIndex;
+            chunkKeyToPoolIndex[coords] = poolIndex;
         }
     }
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
-    if (!batch.coordPairs.empty())
-    {
-        //std::cout << "[FAST] Generated " << batch.coordPairs.size() << " chunks in "
-        //    << duration << " (avg: " << duration.count() / batch.coordPairs.size() << "ms/chunk)" << std::endl;
-    }
+    std::cout << "[FAST " << threadId << "] Processed " << batch.coordTuples.size() << " chunks in "
+		<< duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
 }
 
 // ============================================================================
@@ -439,19 +425,18 @@ void ChunkManager::meshChunksWorker(int threadId)
         // Collect batch of work
         for (size_t i = 0; i < CHUNKS_PER_BATCH; ++i)
         {
-            uint64_t chunkKey;
-            if (!meshingQueue.pop(chunkKey))
+            std::tuple<int, int, int> chunkCoords;
+            if (!meshingQueue.pop(chunkCoords))
             {
                 break;
             }
 
             std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
-            auto it = chunkKeyToPoolIndex.find(chunkKey);
+            auto it = chunkKeyToPoolIndex.find(chunkCoords);
             if (it != chunkKeyToPoolIndex.end())
             {
                 batch.chunkIndices.push_back(it->second);
-                auto coords = keyToChunkCoords(chunkKey);
-                batch.coordPairs.push_back(coords);
+                batch.coordTuples.push_back(chunkCoords);
             }
         }
 
@@ -479,18 +464,20 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
     std::vector<size_t> sortedIndices(batch.chunkIndices.size());
     std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
 
-    if (!batch.coordPairs.empty())
+    if (!batch.coordTuples.empty())
     {
         // Sort by distance from first chunk in batch
-        int centerX = batch.coordPairs[0].first;
-        int centerZ = batch.coordPairs[0].second;
+        auto firstCoords = batch.coordTuples[0];
+        int centerX = std::get<0>(firstCoords);
+        int centerY = std::get<1>(firstCoords);
+        int centerZ = std::get<2>(firstCoords);
 
         std::sort(sortedIndices.begin(), sortedIndices.end(),
-            [this, &batch, centerX, centerZ](size_t a, size_t b) {
-                auto coordsA = batch.coordPairs[a];
-                auto coordsB = batch.coordPairs[b];
-                int distA = calculateChunkDistance(coordsA.first, coordsA.second, centerX, centerZ);
-                int distB = calculateChunkDistance(coordsB.first, coordsB.second, centerX, centerZ);
+            [this, &batch, centerX, centerY, centerZ](size_t a, size_t b) {
+                auto coordsA = batch.coordTuples[a];
+                auto coordsB = batch.coordTuples[b];
+                int distA = calculateChunkDistance(std::get<0>(coordsA), std::get<1>(coordsA), std::get<2>(coordsA), centerX, centerY, centerZ);
+                int distB = calculateChunkDistance(std::get<0>(coordsB), std::get<1>(coordsB), std::get<2>(coordsB), centerX, centerY, centerZ);
                 return distA < distB;
             });
     }
@@ -512,24 +499,26 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
 // CHUNK REMOVAL AND CLEANUP
 // ============================================================================
 
-int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance)
+int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance)
 {
-    std::vector<uint64_t> chunkMeshToRemove;
-    std::vector<uint64_t> chunkDataToRemove;
+    std::vector<std::tuple<int, int, int>> chunkMeshToRemove;
+    std::vector<std::tuple<int, int, int>> chunkDataToRemove;
 
     // Find chunks to remove
     {
         std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
         for (const auto& pair : chunkKeyToPoolIndex)
         {
-            auto coords = keyToChunkCoords(pair.first);
+            auto coords = pair.first;
             const Chunk* chunk = chunkPool.getChunk(pair.second);
 
             if (!chunk) continue;
 
-            int deltaX = coords.first - centerX;
-            int deltaZ = coords.second - centerZ;
-            int distance = std::max(std::abs(deltaX), std::abs(deltaZ));
+            int chunkX = std::get<0>(coords);
+            int chunkY = std::get<1>(coords);
+            int chunkZ = std::get<2>(coords);
+
+            int distance = calculateChunkDistance(chunkX, chunkY, chunkZ, centerX, centerY, centerZ);
 
             if (distance > maxDataDistance)
             {
@@ -545,7 +534,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDista
     // Remove distant chunks
     {
         std::unique_lock<std::shared_mutex> lock(poolIndexMutex);
-        for (uint64_t key : chunkDataToRemove)
+        for (auto key : chunkDataToRemove)
         {
             auto it = chunkKeyToPoolIndex.find(key);
             if (it != chunkKeyToPoolIndex.end())
@@ -559,7 +548,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDista
             }
         }
 
-        for (uint64_t key : chunkMeshToRemove)
+        for (auto key : chunkMeshToRemove)
         {
             auto it = chunkKeyToPoolIndex.find(key);
             if (it != chunkKeyToPoolIndex.end())
@@ -581,9 +570,9 @@ int ChunkManager::removeDistantChunks(int centerX, int centerZ, int maxDataDista
 // QUERY METHODS
 // ============================================================================
 
-Chunk* ChunkManager::getChunk(int chunkX, int chunkZ)
+Chunk* ChunkManager::getChunk(int chunkX, int chunkY, int chunkZ)
 {
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+    std::tuple<int, int, int> key = std::make_tuple(chunkX, chunkY, chunkZ);
 
     std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
     auto it = chunkKeyToPoolIndex.find(key);
@@ -598,10 +587,10 @@ Chunk* ChunkManager::getChunk(int chunkX, int chunkZ)
 
 bool ChunkManager::hasCubeAtWorld(int worldX, int worldY, int worldZ) const
 {
-    int chunkX, chunkZ, localX, localY, localZ;
-    worldToChunkAndLocal(worldX, worldY, worldZ, chunkX, chunkZ, localX, localY, localZ);
+    int chunkX, chunkY, chunkZ, localX, localY, localZ;
+    worldToChunkAndLocal(worldX, worldY, worldZ, chunkX, chunkY, chunkZ, localX, localY, localZ);
 
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
+    std::tuple<int, int, int> key = std::make_tuple(chunkX, chunkY, chunkZ);
 
     std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
     auto it = chunkKeyToPoolIndex.find(key);
@@ -612,48 +601,6 @@ bool ChunkManager::hasCubeAtWorld(int worldX, int worldY, int worldZ) const
 
     const Chunk* chunk = chunkPool.getChunk(it->second);
     return chunk ? chunk->hasCubeAt(localX, localY, localZ) : false;
-}
-
-bool ChunkManager::hasCubeAtWorldCached(int worldX, int worldY, int worldZ,
-    const std::unordered_map<uint64_t, const Chunk*>& chunkCache, bool debug) const
-{
-    int chunkX, chunkZ, localX, localY, localZ;
-    worldToChunkAndLocal(worldX, worldY, worldZ, chunkX, chunkZ, localX, localY, localZ);
-
-    uint64_t key = chunkCoordsToKey(chunkX, chunkZ);
-    auto it = chunkCache.find(key);
-    if (it == chunkCache.end() || it->second == nullptr)
-    {
-        return false;
-    }
-
-    return it->second->hasCubeAt(localX, localY, localZ);
-}
-
-std::unordered_map<uint64_t, const Chunk*> ChunkManager::createNeighborCache(int centerChunkX, int centerChunkZ) const
-{
-    std::unordered_map<uint64_t, const Chunk*> cache;
-
-    std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
-
-    // Cache 3x3 grid of chunks around the center
-    for (int dx = -1; dx <= 1; dx++)
-    {
-        for (int dz = -1; dz <= 1; dz++)
-        {
-            int neighborX = centerChunkX + dx;
-            int neighborZ = centerChunkZ + dz;
-            uint64_t key = chunkCoordsToKey(neighborX, neighborZ);
-
-            auto it = chunkKeyToPoolIndex.find(key);
-            if (it != chunkKeyToPoolIndex.end())
-            {
-                cache[key] = chunkPool.getChunk(it->second);
-            }
-        }
-    }
-
-    return cache;
 }
 
 std::vector<Vertex> ChunkManager::getAllVertices() const
@@ -713,17 +660,16 @@ int ChunkManager::getLoadedChunkCount() const
     return static_cast<int>(chunkKeyToPoolIndex.size());
 }
 
-std::vector<std::pair<int, int>> ChunkManager::getLoadedChunkCoordinates() const
+std::vector<std::tuple<int, int, int>> ChunkManager::getLoadedChunkCoordinates() const
 {
-    std::vector<std::pair<int, int>> coordinates;
+    std::vector<std::tuple<int, int, int>> coordinates;
 
     std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
     coordinates.reserve(chunkKeyToPoolIndex.size());
 
     for (const auto& pair : chunkKeyToPoolIndex)
     {
-        auto coords = keyToChunkCoords(pair.first);
-        coordinates.push_back(coords);
+        coordinates.push_back(pair.first);
     }
 
     return coordinates;

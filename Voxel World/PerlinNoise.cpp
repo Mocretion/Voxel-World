@@ -161,3 +161,24 @@ float PerlinNoise::octaveNoise2D(float x, float y, int octaves, float persistenc
     // Normalize to [-1, 1]
     return total / maxValue;
 }
+
+float PerlinNoise::octaveNoise3D(float x, float y, float z, int octaves, float persistence, float scale) const
+{
+    float total = 0.0f;
+    float frequency = scale;
+    float amplitude = 1.0f;
+    float maxValue = 0.0f;  // Used for normalizing result
+
+    for (int i = 0; i < octaves; i++)
+    {
+        total += noise3D(x * frequency, y * frequency, z * frequency) * amplitude;
+
+        maxValue += amplitude;
+
+        amplitude *= persistence;
+        frequency *= 2.0f;
+    }
+
+    // Normalize to [-1, 1]
+    return total / maxValue;
+}

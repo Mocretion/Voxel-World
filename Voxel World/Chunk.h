@@ -15,11 +15,11 @@ class ChunkManager;
 
 class Chunk {
 public:
-    static const int CHUNK_SIZE = 32;  // 32x32 cubes per chunk
+    static const int CHUNK_SIZE = 64;  // 64x64x64 cubes per chunk
     static const float CUBE_SIZE;      // Size of each cube (will define in .cpp)
 
-    // Constructor - creates a chunk at the given world position
-    Chunk(int chunkX, int chunkZ, PerlinNoise* noise = nullptr);
+    // Constructor - creates a chunk at the given 3D world position
+    Chunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise = nullptr);
 
     // Generate mesh with greedy meshing
     void generateMeshWithManager(ChunkManager* manager, bool debug);
@@ -37,9 +37,10 @@ public:
 
     // Get chunk position
     int getChunkX() const { return chunkX; }
+    int getChunkY() const { return chunkY; }
     int getChunkZ() const { return chunkZ; }
 
-    // Check if a cube exists at the given local coordinates (0-31)
+    // Check if a cube exists at the given local coordinates (0-63)
     bool hasCubeAt(int x, int y, int z) const;
 
     // Check if a cube exists at world coordinates (can query other chunks)
@@ -48,22 +49,18 @@ public:
     // Set whether a cube exists at local coordinates
     void setCubeAt(int x, int y, int z, bool exists);
 
-    // Get height at local coordinates
-    int getHeightAt(int x, int z) const;
-
     // Mesh state tracking
     bool isMeshGenerated() const { return meshGenerated; }
     void setMeshGenerated(bool isGenerated) { meshGenerated = isGenerated; }
 
 private:
-    int chunkX, chunkZ;
+    int chunkX, chunkY, chunkZ;
     PerlinNoise* noiseGenerator;
 
-    static const int MAX_HEIGHT = 32;
+    static const int MAX_HEIGHT = 64;
 
     // Stack-allocated arrays for fast access
     bool cubes[CHUNK_SIZE][MAX_HEIGHT][CHUNK_SIZE];
-    int heights[CHUNK_SIZE][CHUNK_SIZE];
 
     // Mesh data
     std::vector<Vertex> vertices;
@@ -88,8 +85,8 @@ private:
 
     // === HELPER METHODS ===
 
-    void generateTerrain();
-    glm::vec3 getTerrainColor(int height) const;
+    void generate3DTerrain();
+    glm::vec3 getTerrainColor(int worldY) const;
     void localToWorld(int localX, int localY, int localZ, int& worldX, int& worldY, int& worldZ) const;
 
     // === GREEDY MESHING METHODS ===

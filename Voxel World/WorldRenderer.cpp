@@ -12,13 +12,13 @@ WorldRenderer::WorldRenderer(VulkanRenderer* renderer)
 void WorldRenderer::updateWorld(const Camera& camera)
 {
     // Convert player's world position to chunk coordinates
-    glm::ivec2 playerChunk = worldPositionToChunk(camera.getPosition());
+    glm::ivec3 playerChunk = worldPositionToChunk(camera.getPosition());
 
     // Only update terrain if player moved to a different chunk
     if (playerChunk != lastUpdateChunk)
     {
-        std::cout << "Player moved to chunk (" << playerChunk.x << ", " << playerChunk.y
-            << ") from (" << lastUpdateChunk.x << ", " << lastUpdateChunk.y << ")" << std::endl;
+		std::cout << "Player moved to chunk (" << playerChunk.x << ", " << playerChunk.y << ", " << playerChunk.z
+            << ") from (" << lastUpdateChunk.x << ", " << lastUpdateChunk.y << ", " << lastUpdateChunk.z << ")" << std::endl;
 
         currentPlayerChunk = playerChunk;
 
@@ -62,42 +62,47 @@ void WorldRenderer::updateWorld(const Camera& camera)
     }
 }
 
-glm::ivec2 WorldRenderer::worldPositionToChunk(const glm::vec3& worldPos) const
+glm::ivec3 WorldRenderer::worldPositionToChunk(const glm::vec3& worldPos) const
 {
     // Convert world coordinates to chunk coordinates
     int chunkX = static_cast<int>(std::floor(worldPos.x / Chunk::CHUNK_SIZE));
+    int chunkY = static_cast<int>(std::floor(worldPos.y / Chunk::CHUNK_SIZE));
     int chunkZ = static_cast<int>(std::floor(worldPos.z / Chunk::CHUNK_SIZE));
 
-    return glm::ivec2(chunkX, chunkZ);
+    return glm::ivec3(chunkX, chunkY, chunkZ);
 }
 
-void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
+void WorldRenderer::generateChunksAroundPlayer(const glm::ivec3& playerChunk)
 {
     // Generate chunks in a square around the player
 
-    std::vector<std::pair<int, int>> chunksToGenerate;
-    std::vector<std::pair<int, int>> chunksToMesh;
+    std::vector<std::tuple<int, int, int>> chunksToGenerate;
+    std::vector<std::tuple<int, int, int>> chunksToMesh;
 
     for (int x = playerChunk.x - renderDistance - ADD_CALCULATION_DISTANCE; x <= playerChunk.x + renderDistance + ADD_CALCULATION_DISTANCE; x++)
     {
-        for (int z = playerChunk.y - renderDistance - ADD_CALCULATION_DISTANCE; z <= playerChunk.y + renderDistance + ADD_CALCULATION_DISTANCE; z++)
+        for (int y = playerChunk.y - renderDistance - ADD_CALCULATION_DISTANCE; y <= playerChunk.y + renderDistance + ADD_CALCULATION_DISTANCE; y++)
         {
-            Chunk* chunk = chunkManager.getChunk(x, z);
-
-            bool inMeshingRange =
-                x >= playerChunk.x - renderDistance && x <= playerChunk.x + renderDistance &&
-                z >= playerChunk.y - renderDistance && z <= playerChunk.y + renderDistance;
-
-            // Check if this chunk does not already exists
-            if (chunk == nullptr)
+            for (int z = playerChunk.z - renderDistance - ADD_CALCULATION_DISTANCE; z <= playerChunk.z + renderDistance + ADD_CALCULATION_DISTANCE; z++)
             {
-                // Render only chunks within the render distance but NOT calculation distance
-                chunksToGenerate.emplace_back(x, z);
-            }
+                Chunk* chunk = chunkManager.getChunk(x, y, z);
 
-            if ((chunk == nullptr || !chunk->isMeshGenerated()) && inMeshingRange)  // Chunk also needs meshing
-            {
-                chunksToMesh.emplace_back(x, z);
+                bool inMeshingRange =
+                    x >= playerChunk.x - renderDistance && x <= playerChunk.x + renderDistance &&
+                    y >= playerChunk.y - renderDistance && y <= playerChunk.y + renderDistance &&
+                    z >= playerChunk.z - renderDistance && z <= playerChunk.z + renderDistance;
+
+                // Check if this chunk does not already exists
+                if (chunk == nullptr)
+                {
+                    // Render only chunks within the render distance but NOT calculation distance
+                    chunksToGenerate.emplace_back(x, y, z);
+                }
+
+                if ((chunk == nullptr || !chunk->isMeshGenerated()) && inMeshingRange)  // Chunk also needs meshing
+                {
+                    chunksToMesh.emplace_back(x, y, z);
+                }
             }
         }
     }
@@ -113,11 +118,11 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec2& playerChunk)
     }
 }
 
-void WorldRenderer::removeDistantChunks(const glm::ivec2& playerChunk)
+void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
 {
     int removeMeshDistance = renderDistance;
     int removeDataDistance = renderDistance + ADD_CALCULATION_DISTANCE;
-    int chunksRemoved = chunkManager.removeDistantChunks(playerChunk.x, playerChunk.y, removeDataDistance, removeMeshDistance);
+    int chunksRemoved = chunkManager.removeDistantChunks(playerChunk.x, playerChunk.y, playerChunk.z, removeDataDistance, removeMeshDistance);
 
     if (chunksRemoved > 0)
     {

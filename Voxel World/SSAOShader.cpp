@@ -83,12 +83,6 @@ void SSAOShader::updateUniforms(uint32_t frameIndex, const void* data)
 
 void SSAOShader::recordCommands(VkCommandBuffer commandBuffer, uint32_t frameIndex)
 {
-    static int frameCount = 0;
-    if (frameCount++ % 60 == 0)
-    {  // Print every 60 frames to avoid spam
-        std::cout << "SSAOShader: Recording commands for frame " << frameIndex << std::endl;
-    }
-
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
     if (frameIndex < descriptorSets.size())

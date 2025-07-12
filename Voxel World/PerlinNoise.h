@@ -23,6 +23,8 @@ public:
     // scale: overall scale of the noise
     float octaveNoise2D(float x, float y, int octaves, float persistence, float scale) const;
 
+    float octaveNoise3D(float x, float y, float z, int octaves, float persistence, float scale) const;
+
 private:
     // Permutation table - this is like a lookup table for randomness
     std::vector<int> p;  // In C#/Java this would be: int[] p = new int[512];

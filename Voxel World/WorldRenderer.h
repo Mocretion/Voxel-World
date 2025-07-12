@@ -42,8 +42,8 @@ private:
     // NEW: Infinite terrain settings
     int renderDistance = 3;  // How many chunks in each direction to keep loaded
 	const int ADD_CALCULATION_DISTANCE = 2;  // How many chunks to calculate around the player
-    glm::ivec2 currentPlayerChunk = glm::ivec2(0, 0);  // Which chunk the player is currently in
-    glm::ivec2 lastUpdateChunk = glm::ivec2(INT_MAX, INT_MAX);  // Last chunk where we updated terrain
+    glm::ivec3 currentPlayerChunk = glm::ivec3(0, 0, 0);  // Which chunk the player is currently in
+    glm::ivec3 lastUpdateChunk = glm::ivec3(INT_MAX, INT_MAX, INT_MAX);  // Last chunk where we updated terrain
 
     // Cache for mesh data to avoid regenerating every frame
     bool worldDataDirty = true;  // Track if we need to regenerate mesh data
@@ -52,9 +52,9 @@ private:
     UniformBufferObject createUBO(const Camera& camera, float aspectRatio) const;
 
     // NEW: Infinite terrain helpers
-    glm::ivec2 worldPositionToChunk(const glm::vec3& worldPos) const;
-    void generateChunksAroundPlayer(const glm::ivec2& playerChunk);
-    void removeDistantChunks(const glm::ivec2& playerChunk);
+    glm::ivec3 worldPositionToChunk(const glm::vec3& worldPos) const;
+    void generateChunksAroundPlayer(const glm::ivec3& playerChunk);
+    void removeDistantChunks(const glm::ivec3& playerChunk);
     void updateMeshData();
 
     std::chrono::high_resolution_clock::time_point time = std::chrono::high_resolution_clock::now();

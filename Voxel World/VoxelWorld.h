@@ -39,7 +39,7 @@ private:
     std::chrono::high_resolution_clock::time_point lastFrameTime;
     float deltaTime = 0.0f;
 
-    // HUD/Window title
+    // HUD/Window titleVulkanRenderer: Updating SSAO uniforms,
     float titleUpdateTimer = 0.0f;
     const float TITLE_UPDATE_INTERVAL = 0.1f;
 

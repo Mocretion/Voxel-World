@@ -13,9 +13,22 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <tuple>
 
 // Forward declaration to avoid circular dependency
 class Chunk;
+
+struct TupleHash {
+    std::size_t operator()(const std::tuple<int, int, int>& t) const
+    {
+        auto h1 = std::hash<int>{}(std::get<0>(t));
+        auto h2 = std::hash<int>{}(std::get<1>(t));
+        auto h3 = std::hash<int>{}(std::get<2>(t));
+
+        // Combine hashes using a simple but effective method
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
+};
 
 class ChunkManager {
 public:
@@ -23,23 +36,20 @@ public:
     ~ChunkManager();
 
     // Main interface methods
-    void markChunksForGeneration(std::vector<std::pair<int, int>> chunks);
-    void markChunksForMeshing(std::vector<std::pair<int, int>> chunks);
+    void markChunksForGeneration(std::vector<std::tuple<int, int, int>> chunks);
+    void markChunksForMeshing(std::vector<std::tuple<int, int, int>> chunks);
     void generateChunks(int maxUpdates);
     void updateMeshes();
-    int removeDistantChunks(int centerX, int centerZ, int maxDataDistance, int maxMeshDistance);
+    int removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance);
 
     // Query methods
-    Chunk* getChunk(int chunkX, int chunkZ);
+    Chunk* getChunk(int chunkX, int chunkY, int chunkZ);
     bool hasCubeAtWorld(int worldX, int worldY, int worldZ) const;
-    bool hasCubeAtWorldCached(int worldX, int worldY, int worldZ,
-        const std::unordered_map<uint64_t, const Chunk*>& chunkCache, bool debug) const;
-    std::unordered_map<uint64_t, const Chunk*> createNeighborCache(int centerChunkX, int centerChunkZ) const;
 
     std::vector<Vertex> getAllVertices() const;
     std::vector<uint32_t> getAllIndices() const;
     int getLoadedChunkCount() const;
-    std::vector<std::pair<int, int>> getLoadedChunkCoordinates() const;
+    std::vector<std::tuple<int, int, int>> getLoadedChunkCoordinates() const;
 
     // Status methods
     int getChunksNeedingGeneration() const;
@@ -63,7 +73,7 @@ private:
         std::atomic<size_t> nextSlot{ 0 };            // Thread-safe slot allocation
         mutable std::mutex poolMutex;               // Protect pool operations
 
-        size_t allocateChunk(int chunkX, int chunkZ, PerlinNoise* noise);
+        size_t allocateChunk(int chunkX, int chunkY, int chunkZ, PerlinNoise* noise);
         void deallocateChunk(size_t index);
         Chunk* getChunk(size_t index);
         const Chunk* getChunk(size_t index) const;
@@ -71,21 +81,21 @@ private:
     };
 
     ChunkPool chunkPool;
-    std::unordered_map<uint64_t, size_t> chunkKeyToPoolIndex;
+    std::unordered_map<std::tuple<int, int, int>, size_t, TupleHash> chunkKeyToPoolIndex;
     mutable std::shared_mutex poolIndexMutex;  // Protect the key->index mapping
 
     // SIMPLIFIED: Basic work distribution
     struct WorkQueue {
-        std::vector<uint64_t> items;
+        std::vector<std::tuple<int, int, int>> items;
         mutable std::mutex queueMutex;  // Protect vector operations
 
-        void push(uint64_t item);
-        bool pop(uint64_t& item);
+        void push(std::tuple<int, int, int> item);
+        bool pop(std::tuple<int, int, int>& item);
         bool empty() const;
         size_t size() const;
         void clear();
-        bool contains(uint64_t item) const;
-        bool remove(uint64_t item);
+        bool contains(std::tuple<int, int, int> item) const;
+        bool remove(std::tuple<int, int, int> item);
     };
 
     WorkQueue generationQueue;
@@ -94,17 +104,17 @@ private:
     // Thread-local work batches (simplified)
     struct ThreadWorkBatch {
         std::vector<size_t> chunkIndices;           // Indices into chunk pool
-        std::vector<std::pair<int, int>> coordPairs; // Chunk coordinates for spatial locality
+        std::vector<std::tuple<int, int, int>> coordTuples; // Chunk coordinates for spatial locality
 
         void clear()
         {
             chunkIndices.clear();
-            coordPairs.clear();
+            coordTuples.clear();
         }
 
         bool emptyCoords() const
         {
-            return coordPairs.empty();
+            return coordTuples.empty();
         }
 
         bool empty() const
@@ -138,23 +148,21 @@ private:
     std::atomic<bool> shutdownRequested{ false };
 
     // Helper methods
-    uint64_t chunkCoordsToKey(int chunkX, int chunkZ) const;
-    std::pair<int, int> keyToChunkCoords(uint64_t key) const;
     void worldToChunkAndLocal(int worldX, int worldY, int worldZ,
-        int& chunkX, int& chunkZ,
+        int& chunkX, int& chunkY, int& chunkZ,
         int& localX, int& localY, int& localZ) const;
 
     // Single chunk operations
-    bool markChunkForGeneration(int chunkX, int chunkZ);
-    bool markChunkForMeshing(int chunkX, int chunkZ);
+    bool markChunkForGeneration(int chunkX, int chunkY, int chunkZ);
+    bool markChunkForMeshing(int chunkX, int chunkY, int chunkZ);
 
     // Optimized worker methods
-    void generateChunksWorker();
+    void generateChunksWorker(int threadId);
     void meshChunksWorker(int threadId);
     void processMeshBatch(ThreadWorkBatch& batch, int threadId);
-    void processGenerationBatch(ThreadWorkBatch& batch);
+    void processGenerationBatch(ThreadWorkBatch& batch, int threadId);
 
     // Spatial locality helpers
-    void sortChunksByDistance(std::vector<std::pair<int, int>>& chunks, int centerX, int centerZ);
-    int calculateChunkDistance(int x1, int z1, int x2, int z2) const;
+    void sortChunksByDistance(std::vector<std::tuple<int, int, int>>& chunks, int centerX, int centerY, int centerZ);
+    int calculateChunkDistance(int x1, int y1, int z1, int x2, int y2, int z2) const;
 };
