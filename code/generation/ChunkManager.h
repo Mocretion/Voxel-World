@@ -38,7 +38,7 @@ public:
     // Main interface methods
     void markChunksForGeneration(std::vector<std::tuple<int, int, int>> chunks);
     void markChunksForMeshing(std::vector<std::tuple<int, int, int>> chunks);
-    void generateChunks(int maxUpdates);
+    void generateChunks();
     void updateMeshes();
     int removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance);
 
@@ -136,7 +136,7 @@ private:
 
     // Configuration - optimized for better cache performance
     static constexpr int GENERATION_THREAD_COUNT = 4;
-    static constexpr int MESHING_THREAD_COUNT = 1;
+    static constexpr int MESHING_THREAD_COUNT = 4;
     static constexpr size_t CHUNKS_PER_BATCH = 4;
     static constexpr size_t INITIAL_POOL_SIZE = 128;
 

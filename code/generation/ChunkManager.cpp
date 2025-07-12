@@ -283,7 +283,7 @@ bool ChunkManager::markChunkForMeshing(int chunkX, int chunkY, int chunkZ)
 // GENERATION SYSTEM
 // ============================================================================
 
-void ChunkManager::generateChunks(int maxUpdates)
+void ChunkManager::generateChunks()
 {
     isDoneGenerating.store(false);
     activeGenerationThreads.store(GENERATION_THREAD_COUNT);
@@ -464,6 +464,8 @@ void ChunkManager::meshChunksWorker(int threadId)
 
 void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
 {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // Sort by spatial locality for better cache performance
     std::vector<size_t> sortedIndices(batch.chunkIndices.size());
     std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
@@ -486,6 +488,12 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
             });
     }
 
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+    std::cout << "[FAST " << threadId << "] Sorted chunks in "
+        << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
+
     // Process chunks in sorted order for better cache locality
     for (size_t idx : sortedIndices)
     {
@@ -494,9 +502,15 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
 
         if (chunk && !chunk->isMeshGenerated())
         {
-            chunk->generateMeshWithManager(this, threadId == 0);  // Debug only first thread
+            chunk->generateMeshWithManager(this, false);  // Debug only first thread
         }
     }
+
+    endTime = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+    std::cout << "[FAST " << threadId << "] Meshed " << batch.coordTuples.size() << " chunks in "
+        << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
 }
 
 // ============================================================================

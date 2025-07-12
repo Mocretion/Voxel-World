@@ -38,7 +38,7 @@ void WorldRenderer::updateWorld(const Camera& camera)
     {
         time = std::chrono::high_resolution_clock::now();
         std::cout << "Creating chunk data for chunks...: " << chunksNeedingGeneration << std::endl;
-        chunkManager.generateChunks(CHUNK_GEN_PER_FRAME);
+        chunkManager.generateChunks();
     }
 
     int chunksNeedingUpdate = chunkManager.getChunksNeedingMeshUpdate();

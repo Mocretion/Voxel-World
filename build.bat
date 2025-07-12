@@ -13,8 +13,8 @@ cmake --build . --config Release
 cd ..
 call compile_shaders.bat
 
-cd "D:\VS C# Projects\Voxel World\build\Debug"
+cd "D:\VS C# Projects\Voxel World\build\Release"
 mkdir "shaders"
-xcopy /s "D:\VS C# Projects\Voxel World\shaders" "D:\VS C# Projects\Voxel World\build\Debug\shaders" /y
+xcopy /s "D:\VS C# Projects\Voxel World\shaders" "D:\VS C# Projects\Voxel World\build\Release\shaders" /y
 VoxelWorld.exe
 pause
