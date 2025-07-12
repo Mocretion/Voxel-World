@@ -224,7 +224,7 @@ void ChunkManager::sortChunksByDistance(std::vector<std::tuple<int, int, int>>& 
 }
 
 // ============================================================================
-// CHUNK MANAGEMENT INTERFACE 
+// CHUNK MANAGEMENT INTERFACE
 // ============================================================================
 
 void ChunkManager::markChunksForGeneration(std::vector<std::tuple<int, int, int>> chunks)
@@ -426,21 +426,22 @@ void ChunkManager::meshChunksWorker(int threadId)
     {
         batch.clear();
 
-        // Collect batch of work
-        for (size_t i = 0; i < CHUNKS_PER_BATCH; ++i)
         {
-            std::tuple<int, int, int> chunkCoords;
-            if (!meshingQueue.pop(chunkCoords))
-            {
-                break;
-            }
+            std::shared_lock lock(poolIndexMutex);
 
-            std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
-            auto it = chunkKeyToPoolIndex.find(chunkCoords);
-            if (it != chunkKeyToPoolIndex.end())
+            // Collect batch of work
+            for (size_t i = 0; i < CHUNKS_PER_BATCH; ++i)
             {
-                batch.chunkIndices.push_back(it->second);
-                batch.coordTuples.push_back(chunkCoords);
+                std::tuple<int, int, int> chunkCoords;
+                if (meshingQueue.pop(chunkCoords))
+                {
+                    auto it = chunkKeyToPoolIndex.find(chunkCoords);
+                    if (it != chunkKeyToPoolIndex.end())
+                    {
+                        batch.chunkIndices.push_back(it->second);
+                        batch.coordTuples.push_back(chunkCoords);
+                    }
+                }
             }
         }
 
@@ -466,48 +467,35 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
 {
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    // Sort by spatial locality for better cache performance
-    std::vector<size_t> sortedIndices(batch.chunkIndices.size());
-    std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
+    // Thread-local neighbor cache
+    thread_local NeighborCache neighborCache;
 
-    if (!batch.coordTuples.empty())
+    for (size_t i = 0; i < batch.size(); ++i)
     {
-        // Sort by distance from first chunk in batch
-        auto& firstCoords = batch.coordTuples[0];
-        int centerX = std::get<0>(firstCoords);
-        int centerY = std::get<1>(firstCoords);
-        int centerZ = std::get<2>(firstCoords);
+        size_t chunkIndex = batch.chunkIndices[i];
+        auto& coordTuple = batch.coordTuples[i];
 
-        std::sort(sortedIndices.begin(), sortedIndices.end(),
-            [this, &batch, centerX, centerY, centerZ](size_t a, size_t b) {
-                auto& coordsA = batch.coordTuples[a];
-                auto& coordsB = batch.coordTuples[b];
-                int distA = calculateChunkDistance(std::get<0>(coordsA), std::get<1>(coordsA), std::get<2>(coordsA), centerX, centerY, centerZ);
-                int distB = calculateChunkDistance(std::get<0>(coordsB), std::get<1>(coordsB), std::get<2>(coordsB), centerX, centerY, centerZ);
-                return distA < distB;
-            });
+        Chunk* chunk = chunkPool.getChunk(chunkIndex);
+        if (!chunk || chunk->isMeshGenerated())
+        {
+            continue;
+        }
+
+        int chunkX = std::get<0>(coordTuple);
+        int chunkY = std::get<1>(coordTuple);
+        int chunkZ = std::get<2>(coordTuple);
+
+        // Populate neighbor cache for this chunk
+        neighborCache.populateFromManager(this, chunkX, chunkY, chunkZ);
+
+        // Mesh using the cache - no locks during meshing!
+        chunk->generateMeshWithManager(this, &neighborCache, false);
+
+        usedNewMeshingValue.store(true);
     }
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-
-    std::cout << "[FAST " << threadId << "] Sorted chunks in "
-        << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
-
-    // Process chunks in sorted order for better cache locality
-    for (size_t idx : sortedIndices)
-    {
-        size_t poolIndex = batch.chunkIndices[idx];
-        Chunk* chunk = chunkPool.getChunk(poolIndex);
-
-        if (chunk && !chunk->isMeshGenerated())
-        {
-            chunk->generateMeshWithManager(this, false);  // Debug only first thread
-        }
-    }
-
-    endTime = std::chrono::high_resolution_clock::now();
-    duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
     std::cout << "[FAST " << threadId << "] Meshed " << batch.coordTuples.size() << " chunks in "
         << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
@@ -628,7 +616,7 @@ std::vector<Vertex> ChunkManager::getAllVertices() const
     std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
 
     // Pre-allocate approximate space to reduce reallocations
-    allVertices.reserve(chunkKeyToPoolIndex.size() * 1000);  // Estimate 1000 vertices per chunk
+    allVertices.reserve(chunkKeyToPoolIndex.size() * 2000);  // Estimate 2000 vertices per chunk
 
     for (const auto& pair : chunkKeyToPoolIndex)
     {

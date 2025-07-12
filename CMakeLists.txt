@@ -30,6 +30,7 @@ add_executable(${PROJECT_NAME}
     "code/VoxelWorld.cpp"
     "code/generation/Chunk.cpp"
     "code/generation/ChunkManager.cpp"
+    "code/generation/NeighborCache.cpp"
     "code/user/Camera.cpp"
     "code/noise/PerlinNoise.cpp"
     "code/user/InputManager.cpp"

@@ -12,11 +12,49 @@
 #include <chrono>
 
 class ChunkManager;
+class Chunk;
+
+constexpr int CHNK_SIZE = 64;
+
+struct NeighborCache {
+
+    // Cache structure for fast neighbor lookups without locks
+    // We only need to cache the border blocks of neighboring chunks
+    struct BorderData {
+        // For each face, we store a 2D array of border blocks
+        // Index: [face][u][v] where u,v are the 2D coordinates on that face
+        bool leftFace[CHNK_SIZE][CHNK_SIZE];    // -X face (YZ plane)
+        bool rightFace[CHNK_SIZE][CHNK_SIZE];   // +X face (YZ plane)
+        bool bottomFace[CHNK_SIZE][CHNK_SIZE];  // -Y face (XZ plane)
+        bool topFace[CHNK_SIZE][CHNK_SIZE];     // +Y face (XZ plane)
+        bool backFace[CHNK_SIZE][CHNK_SIZE];    // -Z face (XY plane)
+        bool frontFace[CHNK_SIZE][CHNK_SIZE];   // +Z face (XY plane)
+
+        bool hasData = false;  // Whether this neighbor exists
+    };
+
+    // 3x3x3 grid of neighbors (1,1,1 is self, which we don't use)
+    BorderData neighbors[3][3][3];
+
+    // The chunk coordinates this cache is for
+    int centerChunkX, centerChunkY, centerChunkZ;
+
+    // Check if a world position has a cube using the cache
+    bool hasCubeAtWorld(int worldX, int worldY, int worldZ, const Chunk* centerChunk) const;
+
+    // Populate the cache from the chunk manager (done once before meshing)
+    void populateFromManager(ChunkManager* manager, int chunkX, int chunkY, int chunkZ);
+
+    // Clear the cache
+    void clear();
+};
 
 class Chunk {
 public:
-    static const int CHUNK_SIZE = 64;  // 64x64x64 cubes per chunk
+    static const int CHUNK_SIZE = CHNK_SIZE;  // 64x64x64 cubes per chunk
     static const float CUBE_SIZE;      // Size of each cube (will define in .cpp)
+
+    
 
     // Constructor - creates a chunk at the given 3D world position
     Chunk(int chunkX, int chunkY, int chunkZ);
@@ -24,7 +62,7 @@ public:
     void generateTerrain();
 
     // Generate mesh with greedy meshing
-    void generateMeshWithManager(ChunkManager* manager, bool debug);
+    void generateMeshWithManager(ChunkManager* manager, NeighborCache* cache, bool debug);
 
     void clearMesh()
     {
@@ -56,9 +94,8 @@ public:
     void setMeshGenerated(bool isGenerated) { meshGenerated = isGenerated; }
 
 private:
-    int chunkX, chunkY, chunkZ;
 
-    static const int MAX_HEIGHT = 64;
+    int chunkX, chunkY, chunkZ;
 
     // Stack-allocated arrays for fast access
     bool cubes[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
@@ -105,20 +142,20 @@ private:
     // === GREEDY MESHING METHODS ===
 
     // Main greedy meshing algorithm
-    void generateGreedyMesh(ChunkManager* manager, bool debug);
+    void generateGreedyMesh(ChunkManager* manager, NeighborCache* cache, bool debug);
 
     // Check if a face should be rendered (not blocked by adjacent cube)
-    bool shouldRenderFace(int x, int y, int z, int direction, ChunkManager* manager) const;
+    bool shouldRenderFace(int x, int y, int z, int direction, NeighborCache* cache) const;
 
     // Get face color (could be different per face in the future)
     glm::vec3 getFaceColor(int x, int y, int z, int direction) const;
 
     // Generate quads for a specific axis/direction
-    void generateQuadsForAxis(int axis, int direction, ChunkManager* manager, std::vector<Quad>& quads);
+    void generateQuadsForAxis(int axis, int direction, NeighborCache* cache, std::vector<Quad>& quads);
 
     // Try to expand a quad in both U and V directions (greedy part)
     glm::vec2 expandQuad(int axis, int direction, int x, int y, int z,
-        const glm::vec3& color, ChunkManager* manager,
+        const glm::vec3& color, NeighborCache* cache,
         std::vector<std::vector<std::vector<bool>>>& processed);
 
     // Convert quads to actual vertex/index data

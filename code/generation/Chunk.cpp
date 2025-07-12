@@ -104,7 +104,7 @@ void Chunk::generate3DTerrain()
 bool Chunk::hasCubeAt(int x, int y, int z) const
 {
     if (x < 0 || x >= CHUNK_SIZE ||
-        y < 0 || y >= MAX_HEIGHT ||
+        y < 0 || y >= CHUNK_SIZE ||
         z < 0 || z >= CHUNK_SIZE)
     {
         return false;
@@ -115,7 +115,7 @@ bool Chunk::hasCubeAt(int x, int y, int z) const
 void Chunk::setCubeAt(int x, int y, int z, bool exists)
 {
     if (x >= 0 && x < CHUNK_SIZE &&
-        y >= 0 && y < MAX_HEIGHT &&
+        y >= 0 && y < CHUNK_SIZE &&
         z >= 0 && z < CHUNK_SIZE)
     {
         setCubeAtCoord(x, y, z, exists);
@@ -167,7 +167,7 @@ bool Chunk::hasCubeAtWorld(int worldX, int worldY, int worldZ, ChunkManager* man
 
 // === MAIN MESH GENERATION WITH GREEDY MESHING ===
 
-void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
+void Chunk::generateMeshWithManager(ChunkManager* manager, NeighborCache* cache, bool debug)
 {
     auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -177,7 +177,7 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
     indices.reserve(15000);   // Increased reserve for larger chunks
 
     // Use greedy meshing instead of per-cube meshing
-    generateGreedyMesh(manager, debug);
+    generateGreedyMesh(manager, cache, debug);
 
     setMeshGenerated(true);
 
@@ -191,25 +191,25 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, bool debug)
     }
 }
 
-void Chunk::generateGreedyMesh(ChunkManager* manager, bool debug)
+void Chunk::generateGreedyMesh(ChunkManager* manager, NeighborCache* cache, bool debug)
 {
     std::vector<Quad> allQuads;
-    allQuads.reserve(2000); // Increased pre-allocation for larger chunks
+    allQuads.reserve(2200); // Increased pre-allocation for larger chunks
 
     // Generate quads for each axis and direction
     // X-axis: Left (-X) and Right (+X) faces
-    generateQuadsForAxis(0, -1, manager, allQuads); // Left faces
-    generateQuadsForAxis(0, +1, manager, allQuads); // Right faces
+    generateQuadsForAxis(0, -1, cache, allQuads); // Left faces
+    generateQuadsForAxis(0, +1, cache, allQuads); // Right faces
 
     // Y-axis: Bottom (-Y) and Top (+Y) faces  
-    generateQuadsForAxis(1, -1, manager, allQuads); // Bottom faces
-    generateQuadsForAxis(1, +1, manager, allQuads); // Top faces
+    generateQuadsForAxis(1, -1, cache, allQuads); // Bottom faces
+    generateQuadsForAxis(1, +1, cache, allQuads); // Top faces
 
     // Z-axis: Back (-Z) and Front (+Z) faces
-    generateQuadsForAxis(2, -1, manager, allQuads); // Back faces
-    generateQuadsForAxis(2, +1, manager, allQuads); // Front faces
+    generateQuadsForAxis(2, -1, cache, allQuads); // Back faces
+    generateQuadsForAxis(2, +1, cache, allQuads); // Front faces
 
-    if (debug)
+    if (true)
     {
         std::cout << "[GREEDY] Generated " << allQuads.size() << " quads for 64x64x64 chunk ("
             << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
@@ -219,17 +219,17 @@ void Chunk::generateGreedyMesh(ChunkManager* manager, bool debug)
     convertQuadsToMesh(allQuads);
 }
 
-void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager, std::vector<Quad>& quads)
+void Chunk::generateQuadsForAxis(int axis, int direction, NeighborCache* cache, std::vector<Quad>& quads)
 {
     // Create a 3D processed array to track which faces we've already included in quads
     std::vector<std::vector<std::vector<bool>>> processed(
         CHUNK_SIZE, std::vector<std::vector<bool>>(
-            MAX_HEIGHT, std::vector<bool>(CHUNK_SIZE, false)));
+            CHUNK_SIZE, std::vector<bool>(CHUNK_SIZE, false)));
 
     // Iterate through all possible positions in the chunk
     for (int x = 0; x < CHUNK_SIZE; x++)
     {
-        for (int y = 0; y < MAX_HEIGHT; y++)
+        for (int y = 0; y < CHUNK_SIZE; y++)
         {
             for (int z = 0; z < CHUNK_SIZE; z++)
             {
@@ -238,14 +238,14 @@ void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager,
                     continue;
 
                 // Check if this face should be rendered (not blocked by neighbor)
-                if (!shouldRenderFace(x, y, z, axis * 2 + (direction > 0 ? 1 : 0), manager))
+                if (!shouldRenderFace(x, y, z, axis * 2 + (direction > 0 ? 1 : 0), cache))
                     continue;
 
                 // Get the color for this face
                 glm::vec3 color = getFaceColor(x, y, z, axis * 2 + (direction > 0 ? 1 : 0));
 
                 // Try to expand this face into a larger quad (the "greedy" part!)
-                glm::vec2 quadSize = expandQuad(axis, direction, x, y, z, color, manager, processed);
+                glm::vec2 quadSize = expandQuad(axis, direction, x, y, z, color, cache, processed);
 
                 // Create the quad with CORRECT normal direction
                 glm::vec3 normal;
@@ -270,7 +270,7 @@ void Chunk::generateQuadsForAxis(int axis, int direction, ChunkManager* manager,
     }
 }
 
-bool Chunk::shouldRenderFace(int x, int y, int z, int direction, ChunkManager* manager) const
+bool Chunk::shouldRenderFace(int x, int y, int z, int direction, NeighborCache* cache) const
 {
     // Direction mapping: 0=left(-X), 1=right(+X), 2=bottom(-Y), 3=top(+Y), 4=back(-Z), 5=front(+Z)
     int worldX, worldY, worldZ;
@@ -289,7 +289,7 @@ bool Chunk::shouldRenderFace(int x, int y, int z, int direction, ChunkManager* m
     }
 
     // Face should be rendered if the neighbor position is empty
-    return !manager->hasCubeAtWorld(neighborX, neighborY, neighborZ);
+    return !cache->hasCubeAtWorld(neighborX, neighborY, neighborZ, this);
 }
 
 glm::vec3 Chunk::getFaceColor(int x, int y, int z, int direction) const
@@ -304,7 +304,7 @@ glm::vec3 Chunk::getFaceColor(int x, int y, int z, int direction) const
 }
 
 glm::vec2 Chunk::expandQuad(int axis, int direction, int x, int y, int z,
-    const glm::vec3& color, ChunkManager* manager,
+    const glm::vec3& color, NeighborCache* cache,
     std::vector<std::vector<std::vector<bool>>>& processed)
 {
     // This is the "greedy" part - we try to make the biggest possible quad
@@ -321,13 +321,13 @@ glm::vec2 Chunk::expandQuad(int axis, int direction, int x, int y, int z,
         setAxisCoords(axis, testU, v, w, testX, testY, testZ);
 
         // Check bounds
-        if (testX >= CHUNK_SIZE || testY >= MAX_HEIGHT || testZ >= CHUNK_SIZE)
+        if (testX >= CHUNK_SIZE || testY >= CHUNK_SIZE || testZ >= CHUNK_SIZE)
             break;
 
         // Check if this position is valid for our quad
         if (!hasCubeAt(testX, testY, testZ) ||
             processed[testX][testY][testZ] ||
-            !shouldRenderFace(testX, testY, testZ, axis * 2 + (direction > 0 ? 1 : 0), manager) ||
+            !shouldRenderFace(testX, testY, testZ, axis * 2 + (direction > 0 ? 1 : 0), cache) ||
             getFaceColor(testX, testY, testZ, axis * 2 + (direction > 0 ? 1 : 0)) != color)
         {
             break;
@@ -340,7 +340,7 @@ glm::vec2 Chunk::expandQuad(int axis, int direction, int x, int y, int z,
     int maxV = v;
     bool canExpandV = true;
 
-    for (int testV = v + 1; testV < (axis == 1 ? MAX_HEIGHT : CHUNK_SIZE) && canExpandV; testV++)
+    for (int testV = v + 1; testV < (axis == 1 ? CHUNK_SIZE : CHUNK_SIZE) && canExpandV; testV++)
     {
         // Check the entire row in U direction
         for (int testU = u; testU <= maxU; testU++)
@@ -349,7 +349,7 @@ glm::vec2 Chunk::expandQuad(int axis, int direction, int x, int y, int z,
             setAxisCoords(axis, testU, testV, w, testX, testY, testZ);
 
             // Check bounds
-            if (testX >= CHUNK_SIZE || testY >= MAX_HEIGHT || testZ >= CHUNK_SIZE)
+            if (testX >= CHUNK_SIZE || testY >= CHUNK_SIZE || testZ >= CHUNK_SIZE)
             {
                 canExpandV = false;
                 break;
@@ -358,7 +358,7 @@ glm::vec2 Chunk::expandQuad(int axis, int direction, int x, int y, int z,
             // Check if this position is valid for our quad
             if (!hasCubeAt(testX, testY, testZ) ||
                 processed[testX][testY][testZ] ||
-                !shouldRenderFace(testX, testY, testZ, axis * 2 + (direction > 0 ? 1 : 0), manager) ||
+                !shouldRenderFace(testX, testY, testZ, axis * 2 + (direction > 0 ? 1 : 0), cache) ||
                 getFaceColor(testX, testY, testZ, axis * 2 + (direction > 0 ? 1 : 0)) != color)
             {
                 canExpandV = false;
