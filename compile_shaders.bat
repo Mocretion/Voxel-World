@@ -7,16 +7,14 @@ glslangValidator -V code/shader/vertex.vert -o shaders/vert.spv
 glslangValidator -V code/shader/fragment.frag -o shaders/frag.spv
 
 glslangValidator -V code/shader/copy_vertex.vert -o shaders/copy_vert.spv
-glslangValidator -V code/shader/copy_fragment.frag -o shaders/copy_frag.spv
+glslangValidator -V code/shader/final_composite_fragment.frag -o shaders/final_composite_frag.spv
 
 glslangValidator -V code/shader/ssao_vertex.vert -o shaders/ssao_vert.spv
-glslangValidator -V code/shader/ssao_fragment.frag -o shaders/ssao_frag.spv
+glslangValidator -V code/shader/ssao_only_fragment.frag -o shaders/ssao_only_frag.spv
 
 glslangValidator -V code/shader/ssao_blur_vertex.vert -o shaders/ssao_blur_vert.spv
 glslangValidator -V code/shader/ssao_blur_fragment.frag -o shaders/ssao_blur_frag.spv
 
-glslangValidator -V code/shader/ssao_only_fragment.frag -o shaders/ssao_only_frag.spv
-glslangValidator -V code/shader/final_composite_fragment.frag -o shaders/final_composite_frag.spv
 
 if %errorlevel% neq 0 (
     echo Shader compilation failed!

@@ -7,6 +7,7 @@
 #include <cstring>
 #include "PerlinNoise.h"
 #include "VulkanRenderer.h"
+#include "GBufferShader.h"
 
 // Define the cube size
 const float Chunk::CUBE_SIZE = 1.0f;
@@ -58,9 +59,12 @@ void Chunk::generate3DTerrain()
 	int chunkStartY = chunkY * CHUNK_SIZE;
 	int chunkStartZ = chunkZ * CHUNK_SIZE;
 
+    std::vector<float> caveMap(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE);
+    std::vector<float> skyMap(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE);
+
     noiseHeightGen->GenUniformGrid2D(surfaceHeight, chunkStartX, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, 0.01, 12345);
-    caveNoiseGen->GenUniformGrid3D(caveMap, chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.1, 23456);
-    skyNoiseGen->GenUniformGrid3D(skyMap, chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.08, 34567);
+    caveNoiseGen->GenUniformGrid3D(caveMap.data(), chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.1, 23456);
+    skyNoiseGen->GenUniformGrid3D(skyMap.data(), chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.08, 34567);
 
     int heightIndex = 0;
     int caveIndex = 0;
@@ -530,9 +534,9 @@ void Chunk::addQuadToMesh(const Quad& quad)
     }
     
 
-    uint8_t r = static_cast<uint8_t>(quad.color.x);
-    uint8_t g = static_cast<uint8_t>(quad.color.y);
-    uint8_t b = static_cast<uint8_t>(quad.color.z);
+    uint8_t r = static_cast<uint8_t>(quad.color.x * 255.0F);
+    uint8_t g = static_cast<uint8_t>(quad.color.y * 255.0F);
+    uint8_t b = static_cast<uint8_t>(quad.color.z * 255.0F);
 
     uint32_t colorBits = 0;
     colorBits |= (r & 0xFF) << 0;
@@ -650,13 +654,16 @@ void Chunk::uploadToGPU(VulkanRenderer* renderer)
     gpuResourcesDirty = false;
 }
 
-void Chunk::draw(VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout)
+void Chunk::draw(VkCommandBuffer commandBuffer, GBufferShader* gBufferShader)
 {
     if (!hasRenderableData())
     {
         // No data to render
         return;
     }
+
+    // Push chunk coordinates to shader
+    gBufferShader->pushChunkConstants(commandBuffer, chunkX, chunkY, chunkZ);
 
     // Bind vertex buffer
     if (vertexBuffer != VK_NULL_HANDLE)

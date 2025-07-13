@@ -11,6 +11,14 @@ struct UniformBufferObject {
     glm::mat4 proj;
 };
 
+// Push constants for chunk coordinates
+struct ChunkPushConstants {
+    int chunkX;
+    int chunkY;
+    int chunkZ;
+    int padding; // Align to 16 bytes
+};
+
 // Vertex structure for our 3D cubes (now with normals!)
 struct Vertex {
     uint32_t dataBits;  // 3x7: 0 - 20: POSITION, 21 - 23: NORMAL

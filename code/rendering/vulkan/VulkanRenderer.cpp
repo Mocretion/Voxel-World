@@ -327,14 +327,10 @@ void VulkanRenderer::renderGBufferPass(VkCommandBuffer commandBuffer)
     {
         if (chunk && chunk->hasRenderableData())
         {
-            chunk->draw(commandBuffer, gBufferShader->getPipeline(), gBufferShader->getPipelineLayout());
+            // NEW: Pass GBufferShader to chunk so it can push constants
+            chunk->draw(commandBuffer, gBufferShader.get());
             renderedChunks++;
         }
-    }
-
-    if (renderedChunks > 0)
-    {
-        std::cout << "[RENDER] Drew " << renderedChunks << " chunks in G-buffer pass" << std::endl;
     }
 }
 

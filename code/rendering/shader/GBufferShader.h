@@ -26,6 +26,8 @@ public:
     void bindVertexData(VkCommandBuffer commandBuffer, VkBuffer vertexBuffer, VkBuffer indexBuffer);
     void drawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCount);
 
+    void pushChunkConstants(VkCommandBuffer commandBuffer, int chunkX, int chunkY, int chunkZ);
+
 protected:
     void createDescriptorSetLayout(VkDevice device) override;
     void createPipeline(VkDevice device, VkRenderPass renderPass, VkExtent2D extent) override;

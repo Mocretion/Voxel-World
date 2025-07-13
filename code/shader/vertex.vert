@@ -7,6 +7,14 @@ layout(binding = 0) uniform UniformBufferObject
     mat4 proj;
 } ubo;
 
+layout(push_constant) uniform ChunkPushConstants
+{
+    int chunkX;
+    int chunkY;
+    int chunkZ;
+    int padding;
+} chunkConstants;
+
 layout(location = 0) in uint inPosition;
 layout(location = 1) in uint inColor;
 
@@ -22,7 +30,11 @@ vec3 unpackPosition(uint packedPos)
     uint y = (packedPos >> 7) & 0x7Fu;
     uint z = (packedPos >> 14) & 0x7Fu;
 
-    return vec3(x, y, z);
+    return vec3(x, y, z) + vec3(
+        float(chunkConstants.chunkX * 64),
+        float(chunkConstants.chunkY * 64),
+        float(chunkConstants.chunkZ * 64)
+    );
 }
 
 vec3 unpackNormals(uint packedNormals)
@@ -47,7 +59,7 @@ vec3 unpackColors(uint packedColors)
     uint y = (packedColors >> 8) & 0xFFu;
     uint z = (packedColors >> 16) & 0xFFu;
 
-    return vec3(x, y, z);
+    return vec3(x / 255.0, y / 255.0, z / 255.0);
 }
 
 void main()

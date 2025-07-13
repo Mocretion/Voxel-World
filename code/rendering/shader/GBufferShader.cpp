@@ -86,6 +86,18 @@ void GBufferShader::drawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCou
     vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
 }
 
+void GBufferShader::pushChunkConstants(VkCommandBuffer commandBuffer, int chunkX, int chunkY, int chunkZ)
+{
+    ChunkPushConstants pushConstants{};
+    pushConstants.chunkX = chunkX;
+    pushConstants.chunkY = chunkY;
+    pushConstants.chunkZ = chunkZ;
+    pushConstants.padding = 0;
+
+    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+        0, sizeof(ChunkPushConstants), &pushConstants);
+}
+
 void GBufferShader::createDescriptorSetLayout(VkDevice device)
 {
     VkDescriptorSetLayoutBinding uboLayoutBinding{};

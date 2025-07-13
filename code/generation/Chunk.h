@@ -14,6 +14,7 @@
 class VulkanRenderer;
 class ChunkManager;
 class Chunk;
+class GBufferShader;
 
 constexpr int CHNK_SIZE = 64;
 
@@ -68,7 +69,7 @@ public:
     void clearMesh();
 
     void uploadToGPU(VulkanRenderer* renderer);
-    void draw(VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout);
+    void draw(VkCommandBuffer commandBuffer, GBufferShader* gBufferShader);
     void cleanupGPUResources(VkDevice device);
 
     // Get the generated vertices and indices
@@ -112,8 +113,6 @@ private:
 	}
 
     float surfaceHeight[CHUNK_SIZE * CHUNK_SIZE];
-    float caveMap[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
-    float skyMap[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
 
     // Mesh data
     std::vector<Vertex> vertices;
