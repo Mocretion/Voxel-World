@@ -11,6 +11,7 @@
 #include <shared_mutex>
 #include <chrono>
 
+class VulkanRenderer;
 class ChunkManager;
 class Chunk;
 
@@ -52,24 +53,23 @@ struct NeighborCache {
 class Chunk {
 public:
     static const int CHUNK_SIZE = CHNK_SIZE;  // 64x64x64 cubes per chunk
-    static const float CUBE_SIZE;      // Size of each cube (will define in .cpp)
-
-    
+    static const float CUBE_SIZE;      // Size of each cube (will define in .cpp)    
 
     // Constructor - creates a chunk at the given 3D world position
     Chunk(int chunkX, int chunkY, int chunkZ);
+
+    ~Chunk();
 
     void generateTerrain();
 
     // Generate mesh with greedy meshing
     void generateMeshWithManager(ChunkManager* manager, NeighborCache* cache, bool debug);
 
-    void clearMesh()
-    {
-        vertices.clear();
-        indices.clear();
-        meshGenerated = false;
-    }
+    void clearMesh();
+
+    void uploadToGPU(VulkanRenderer* renderer);
+    void draw(VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout);
+    void cleanupGPUResources(VkDevice device);
 
     // Get the generated vertices and indices
     const std::vector<Vertex>& getVertices() const { return vertices; }
@@ -92,6 +92,9 @@ public:
     // Mesh state tracking
     bool isMeshGenerated() const { return meshGenerated; }
     void setMeshGenerated(bool isGenerated) { meshGenerated = isGenerated; }
+
+    bool isUploadedToGPU() const { return uploadedToGPU; }
+    bool hasRenderableData() const { return uploadedToGPU && !indices.empty(); }
 
 private:
 
@@ -117,19 +120,32 @@ private:
     std::vector<uint32_t> indices;
     bool meshGenerated = false;
 
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
+    VkBuffer indexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
+    bool uploadedToGPU = false;
+    bool gpuResourcesDirty = true;  // Track if mesh changed since last upload
+
     // === GREEDY MESHING STRUCTURES ===
 
     // Represents a face quad in the mesh
     struct Quad {
         glm::vec3 position;     // Bottom-left corner position
         glm::vec2 size;         // Width and height of the quad
-        glm::vec3 normal;       // Face normal (which direction it faces)
+        glm::uint8_t normal;       // Face normal (which direction it faces)
         glm::vec3 color;        // Color of the quad
         int axis;               // 0=X, 1=Y, 2=Z (which axis is the normal)
 
         Quad(glm::vec3 pos, glm::vec2 sz, glm::vec3 norm, glm::vec3 col, int ax)
-            : position(pos), size(sz), normal(norm), color(col), axis(ax)
+            : position(pos), size(sz), color(col), axis(ax)
         {
+            normal = 0;  // +X
+            if (norm.x < 0) normal = 1; // -X
+            else if (norm.y > 0) normal = 2; // +Y
+            else if (norm.y < 0) normal = 3; // -Y
+            else if (norm.z > 0) normal = 4; // +Z
+            else if (norm.z < 0) normal = 5; // -Z
         }
     };
 

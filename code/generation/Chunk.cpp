@@ -6,11 +6,16 @@
 #include <chrono>
 #include <cstring>
 #include "PerlinNoise.h"
+#include "VulkanRenderer.h"
+
 // Define the cube size
 const float Chunk::CUBE_SIZE = 1.0f;
 
 Chunk::Chunk(int chunkX, int chunkY, int chunkZ)
-    : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ)
+    : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ),
+    vertexBuffer(VK_NULL_HANDLE), vertexBufferMemory(VK_NULL_HANDLE),
+    indexBuffer(VK_NULL_HANDLE), indexBufferMemory(VK_NULL_HANDLE),
+    uploadedToGPU(false), gpuResourcesDirty(true)
 {
     // Zero out arrays super fast
     std::memset(cubes, false, sizeof(cubes));
@@ -18,6 +23,24 @@ Chunk::Chunk(int chunkX, int chunkY, int chunkZ)
     // Reserve space for mesh data - larger chunks will need more space
     vertices.reserve(2000);
     indices.reserve(3000);
+}
+
+Chunk::~Chunk()
+{
+    // GPU resources should be cleaned up explicitly via cleanupGPUResources()
+    // before destruction, but add safety check
+    if (vertexBuffer != VK_NULL_HANDLE || indexBuffer != VK_NULL_HANDLE)
+    {
+        std::cerr << "Warning: Chunk destroyed without cleaning up GPU resources!" << std::endl;
+    }
+}
+
+void Chunk::clearMesh()
+{
+    vertices.clear();
+    indices.clear();
+    meshGenerated = false;
+    gpuResourcesDirty = true;  // Mark GPU upload as needed
 }
 
 void Chunk::generateTerrain()
@@ -180,6 +203,7 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, NeighborCache* cache,
     generateGreedyMesh(manager, cache, debug);
 
     setMeshGenerated(true);
+    gpuResourcesDirty = true;  // NEW: Mark that GPU upload is needed
 
     auto endTime = std::chrono::high_resolution_clock::now();
     if (debug)
@@ -259,7 +283,7 @@ void Chunk::generateQuadsForAxis(int axis, int direction, NeighborCache* cache, 
                 float worldZ = (chunkZ * CHUNK_SIZE + z) * CUBE_SIZE;
 
                 // Adjust position based on which face we're rendering
-                glm::vec3 position(worldX, worldY, worldZ);
+                glm::vec3 position(x, y, z);
                 if (axis == 0 && direction > 0) position.x += CUBE_SIZE; // Right face
                 if (axis == 1 && direction > 0) position.y += CUBE_SIZE; // Top face
                 if (axis == 2 && direction > 0) position.z += CUBE_SIZE; // Front face       
@@ -436,75 +460,243 @@ void Chunk::addQuadToMesh(const Quad& quad)
 {
     uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
 
+
     // Create 4 vertices for the quad based on its orientation
     glm::vec3 pos = quad.position;
+    uint8_t normal = quad.normal;
     glm::vec2 size = quad.size;
-    glm::vec3 normal = quad.normal;
 
     // Calculate the 4 corners of the quad based on the axis and direction
-    glm::vec3 v0, v1, v2, v3;
+    glm::vec3 verts[4];
 
-    if (quad.axis == 0) // X-axis faces (Left/Right - YZ plane)
+    if (normal == 0) // Right face (+X)
     {
-        if (normal.x > 0) // Right face (+X)
-        {
-            v0 = pos + glm::vec3(0, 0, size.x);     // bottom-front  
-            v1 = pos + glm::vec3(0, 0, 0);          // bottom-back
-            v2 = pos + glm::vec3(0, size.y, 0);     // top-back
-            v3 = pos + glm::vec3(0, size.y, size.x); // top-front
-        }
-        else // Left face (-X)
-        {
-            v0 = pos + glm::vec3(0, 0, 0);          // bottom-back
-            v1 = pos + glm::vec3(0, 0, size.x);     // bottom-front
-            v2 = pos + glm::vec3(0, size.y, size.x); // top-front
-            v3 = pos + glm::vec3(0, size.y, 0);     // top-back
-        }
+        verts[0] = pos + glm::vec3(0, 0, size.x);     // bottom-front  
+        verts[1] = pos + glm::vec3(0, 0, 0);          // bottom-back
+        verts[2] = pos + glm::vec3(0, size.y, 0);     // top-back
+        verts[3] = pos + glm::vec3(0, size.y, size.x); // top-front
     }
-    else if (quad.axis == 1) // Y-axis faces (Bottom/Top - XZ plane)  
+    else if(normal == 1) // Left face (-X)
     {
-        if (normal.y > 0) // Top face (+Y)
-        {
-            v0 = pos + glm::vec3(size.x, 0, 0);     // back-right
-            v1 = pos + glm::vec3(0, 0, 0);          // back-left
-            v2 = pos + glm::vec3(0, 0, size.y);     // front-left
-            v3 = pos + glm::vec3(size.x, 0, size.y); // front-right
-        }
-        else // Bottom face (-Y)
-        {
-            v0 = pos + glm::vec3(size.x, 0, size.y); // front-right
-            v1 = pos + glm::vec3(0, 0, size.y);     // front-left
-            v2 = pos + glm::vec3(0, 0, 0);          // back-left
-            v3 = pos + glm::vec3(size.x, 0, 0);     // back-right
-        }
+        verts[0] = pos + glm::vec3(0, 0, 0);          // bottom-back
+        verts[1] = pos + glm::vec3(0, 0, size.x);     // bottom-front
+        verts[2] = pos + glm::vec3(0, size.y, size.x); // top-front
+        verts[3] = pos + glm::vec3(0, size.y, 0);     // top-back
     }
-    else // Z-axis faces (Back/Front - XY plane)
+    else if (normal == 2) // Top face (+Y)
     {
-        if (normal.z > 0) // Front face (+Z)
-        {
-            v0 = pos + glm::vec3(0, 0, 0);          // bottom-left
-            v1 = pos + glm::vec3(size.x, 0, 0);     // bottom-right
-            v2 = pos + glm::vec3(size.x, size.y, 0); // top-right
-            v3 = pos + glm::vec3(0, size.y, 0);     // top-left
-        }
-        else // Back face (-Z)
-        {
-            v0 = pos + glm::vec3(size.x, 0, 0);     // bottom-right
-            v1 = pos + glm::vec3(0, 0, 0);          // bottom-left
-            v2 = pos + glm::vec3(0, size.y, 0);     // top-left
-            v3 = pos + glm::vec3(size.x, size.y, 0); // top-right
-        }
+        verts[0] = pos + glm::vec3(size.x, 0, 0);     // back-right
+        verts[1] = pos + glm::vec3(0, 0, 0);          // back-left
+        verts[2] = pos + glm::vec3(0, 0, size.y);     // front-left
+        verts[3] = pos + glm::vec3(size.x, 0, size.y); // front-right
     }
+    else if (normal == 3)// Bottom face (-Y)
+    {
+        verts[0] = pos + glm::vec3(size.x, 0, size.y); // front-right
+        verts[1] = pos + glm::vec3(0, 0, size.y);     // front-left
+        verts[2] = pos + glm::vec3(0, 0, 0);          // back-left
+        verts[3] = pos + glm::vec3(size.x, 0, 0);     // back-right
+    }
+    else if (normal == 4) // Front face (+Z)
+    {
+        verts[0] = pos + glm::vec3(0, 0, 0);          // bottom-left
+        verts[1] = pos + glm::vec3(size.x, 0, 0);     // bottom-right
+        verts[2] = pos + glm::vec3(size.x, size.y, 0); // top-right
+        verts[3] = pos + glm::vec3(0, size.y, 0);     // top-left
+    }
+    else if (normal == 5)// Back face (-Z)
+    {
+        verts[0] = pos + glm::vec3(size.x, 0, 0);     // bottom-right
+        verts[1] = pos + glm::vec3(0, 0, 0);          // bottom-left
+        verts[2] = pos + glm::vec3(0, size.y, 0);     // top-left
+        verts[3] = pos + glm::vec3(size.x, size.y, 0); // top-right
+    }
+
+    uint32_t vertexData[4];
+
+    for (size_t i = 0; i < 4; i++)
+    {
+        // Pack position (0 - 20) and normal (21- 23) into dataBits
+        uint8_t x = static_cast<uint8_t>(verts[i].x);
+        uint8_t y = static_cast<uint8_t>(verts[i].y);
+        uint8_t z = static_cast<uint8_t>(verts[i].z);
+
+        vertexData[i] = 0;
+        vertexData[i] |= (x & 0x7F) << 0;
+        vertexData[i] |= (y & 0x7F) << 7;
+        vertexData[i] |= (z & 0x7F) << 14;
+
+        vertexData[i] |= (normal & 0x07) << 21;
+    }
+    
+
+    uint8_t r = static_cast<uint8_t>(quad.color.x);
+    uint8_t g = static_cast<uint8_t>(quad.color.y);
+    uint8_t b = static_cast<uint8_t>(quad.color.z);
+
+    uint32_t colorBits = 0;
+    colorBits |= (r & 0xFF) << 0;
+    colorBits |= (g & 0xFF) << 8;
+    colorBits |= (b & 0xFF) << 16;
 
     // Add vertices
-    vertices.push_back({ v0, quad.color, normal });
-    vertices.push_back({ v1, quad.color, normal });
-    vertices.push_back({ v2, quad.color, normal });
-    vertices.push_back({ v3, quad.color, normal });
+    vertices.push_back({ vertexData[0], colorBits});
+    vertices.push_back({ vertexData[1], colorBits });
+    vertices.push_back({ vertexData[2], colorBits });
+    vertices.push_back({ vertexData[3], colorBits });
 
     // Add indices for two triangles forming the quad (counter-clockwise winding)
     indices.insert(indices.end(), {
         baseIndex + 0, baseIndex + 1, baseIndex + 2,
         baseIndex + 2, baseIndex + 3, baseIndex + 0
         });
+}
+
+void Chunk::uploadToGPU(VulkanRenderer* renderer)
+{
+    if (!meshGenerated || vertices.empty() || indices.empty())
+    {
+        // No mesh data to upload
+        return;
+    }
+
+    if (uploadedToGPU && !gpuResourcesDirty)
+    {
+        // Already uploaded and no changes
+        return;
+    }
+
+    VkDevice device = renderer->getDevice();
+
+    // Clean up old buffers if they exist
+    cleanupGPUResources(device);
+
+    std::cout << "[GPU] Uploading chunk (" << chunkX << ", " << chunkY << ", " << chunkZ
+        << ") - " << vertices.size() << " vertices, " << indices.size() << " indices" << std::endl;
+
+    // Create vertex buffer
+    VkDeviceSize vertexBufferSize = sizeof(Vertex) * vertices.size();
+    if (vertexBufferSize > 0)
+    {
+        // Create staging buffer
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        renderer->createBuffer(vertexBufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        // Copy vertex data to staging buffer
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, vertexBufferSize, 0, &data);
+        memcpy(data, vertices.data(), static_cast<size_t>(vertexBufferSize));
+        vkUnmapMemory(device, stagingBufferMemory);
+
+        // Create vertex buffer on GPU
+        renderer->createBuffer(vertexBufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            vertexBuffer, vertexBufferMemory);
+
+        // Copy from staging to GPU buffer
+        VkCommandBuffer commandBuffer = renderer->beginSingleTimeCommands();
+        VkBufferCopy copyRegion{};
+        copyRegion.size = vertexBufferSize;
+        vkCmdCopyBuffer(commandBuffer, stagingBuffer, vertexBuffer, 1, &copyRegion);
+        renderer->endSingleTimeCommands(commandBuffer);
+
+        // Cleanup staging buffer
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
+    // Create index buffer
+    VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
+    if (indexBufferSize > 0)
+    {
+        // Create staging buffer
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        renderer->createBuffer(indexBufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        // Copy index data to staging buffer
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, indexBufferSize, 0, &data);
+        memcpy(data, indices.data(), static_cast<size_t>(indexBufferSize));
+        vkUnmapMemory(device, stagingBufferMemory);
+
+        // Create index buffer on GPU
+        renderer->createBuffer(indexBufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            indexBuffer, indexBufferMemory);
+
+        // Copy from staging to GPU buffer
+        VkCommandBuffer commandBuffer = renderer->beginSingleTimeCommands();
+        VkBufferCopy copyRegion{};
+        copyRegion.size = indexBufferSize;
+        vkCmdCopyBuffer(commandBuffer, stagingBuffer, indexBuffer, 1, &copyRegion);
+        renderer->endSingleTimeCommands(commandBuffer);
+
+        // Cleanup staging buffer
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
+    uploadedToGPU = true;
+    gpuResourcesDirty = false;
+}
+
+void Chunk::draw(VkCommandBuffer commandBuffer, VkPipeline pipeline, VkPipelineLayout pipelineLayout)
+{
+    if (!hasRenderableData())
+    {
+        // No data to render
+        return;
+    }
+
+    // Bind vertex buffer
+    if (vertexBuffer != VK_NULL_HANDLE)
+    {
+        VkBuffer vertexBuffers[] = { vertexBuffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+    }
+
+    // Bind index buffer and draw
+    if (indexBuffer != VK_NULL_HANDLE && !indices.empty())
+    {
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+    }
+}
+
+void Chunk::cleanupGPUResources(VkDevice device)
+{
+    if (vertexBuffer != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(device, vertexBuffer, nullptr);
+        vertexBuffer = VK_NULL_HANDLE;
+    }
+    if (vertexBufferMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device, vertexBufferMemory, nullptr);
+        vertexBufferMemory = VK_NULL_HANDLE;
+    }
+    if (indexBuffer != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(device, indexBuffer, nullptr);
+        indexBuffer = VK_NULL_HANDLE;
+    }
+    if (indexBufferMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device, indexBufferMemory, nullptr);
+        indexBufferMemory = VK_NULL_HANDLE;
+    }
+
+    uploadedToGPU = false;
+    gpuResourcesDirty = true;
 }

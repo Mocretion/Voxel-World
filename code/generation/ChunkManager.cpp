@@ -609,57 +609,6 @@ bool ChunkManager::hasCubeAtWorld(int worldX, int worldY, int worldZ) const
     return chunk ? chunk->hasCubeAt(localX, localY, localZ) : false;
 }
 
-std::vector<Vertex> ChunkManager::getAllVertices() const
-{
-    std::vector<Vertex> allVertices;
-
-    std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
-
-    // Pre-allocate approximate space to reduce reallocations
-    allVertices.reserve(chunkKeyToPoolIndex.size() * 2000);  // Estimate 2000 vertices per chunk
-
-    for (const auto& pair : chunkKeyToPoolIndex)
-    {
-        const Chunk* chunk = chunkPool.getChunk(pair.second);
-        if (chunk)
-        {
-            const auto& chunkVertices = chunk->getVertices();
-            allVertices.insert(allVertices.end(), chunkVertices.begin(), chunkVertices.end());
-        }
-    }
-
-    return allVertices;
-}
-
-std::vector<uint32_t> ChunkManager::getAllIndices() const
-{
-    std::vector<uint32_t> allIndices;
-    uint32_t vertexOffset = 0;
-
-    std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
-
-    // Pre-allocate approximate space
-    allIndices.reserve(chunkKeyToPoolIndex.size() * 1500);  // Estimate 1500 indices per chunk
-
-    for (const auto& pair : chunkKeyToPoolIndex)
-    {
-        const Chunk* chunk = chunkPool.getChunk(pair.second);
-        if (chunk)
-        {
-            const auto& chunkIndices = chunk->getIndices();
-
-            for (uint32_t index : chunkIndices)
-            {
-                allIndices.push_back(index + vertexOffset);
-            }
-
-            vertexOffset += static_cast<uint32_t>(chunk->getVertices().size());
-        }
-    }
-
-    return allIndices;
-}
-
 int ChunkManager::getLoadedChunkCount() const
 {
     std::shared_lock<std::shared_mutex> lock(poolIndexMutex);

@@ -17,6 +17,7 @@ class GBufferShader;
 class SSAOShader;
 class SSAOBlurShader;
 class CompositeShader;
+class Chunk;
 
 class VulkanRenderer {
 public:
@@ -31,8 +32,8 @@ public:
     bool beginFrame();
     void endFrame();
 
-    // Update vertex and index data for rendering
-    void updateMeshData(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    // NEW: Per-chunk rendering system (replaces updateMeshData)
+    void renderChunks(const std::vector<Chunk*>& chunks);
 
     // Update uniform buffer (for camera matrices)
     void updateUniforms(const UniformBufferObject& ubo);
@@ -48,13 +49,13 @@ public:
     uint32_t getFrameWidth() const { return swapChainExtent.width; }
     uint32_t getFrameHeight() const { return swapChainExtent.height; }
 
-    // Public interface for shaders
+    // Public interface for shaders and chunks
     VkDevice getDevice() const { return device; }
     VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
     VkDescriptorPool getDescriptorPool() const { return descriptorPool; }
     size_t getMaxFramesInFlight() const { return MAX_FRAMES_IN_FLIGHT; }
 
-    // Helper methods for shaders
+    // Helper methods for shaders and chunks
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
         VkBuffer& buffer, VkDeviceMemory& bufferMemory);
     void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
@@ -159,16 +160,16 @@ private:
     // G-buffer sampler
     VkSampler gBufferSampler = VK_NULL_HANDLE;
 
-    // Vertex/Index buffers
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer indexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
+    // REMOVED: Combined vertex/index buffers (no longer needed)
+    // VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    // VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
+    // VkBuffer indexBuffer = VK_NULL_HANDLE;
+    // VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
 
-    // Current mesh data
-    std::vector<Vertex> currentVertices;
-    std::vector<uint32_t> currentIndices;
-    bool meshDataDirty = false;
+    // NEW: Store chunks for rendering
+    std::vector<Chunk*> chunksToRender;
+    bool chunkDataDirty = false;
+
     uint32_t currentImageIndex = 0;
 
     // Shader pipeline instances
@@ -210,8 +211,6 @@ private:
     void createGBufferFramebuffers();
     void createSSAOFramebuffers();
     void createCommandPool();
-    void createVertexBuffer();
-    void createIndexBuffer();
     void createDescriptorPool();
     void createCommandBuffers();
     void createSyncObjects();
@@ -245,4 +244,8 @@ private:
     void createSSAORenderPass();
     void createBlurRenderPass();
     void createFramebuffers();
+
+    // NEW: Per-chunk rendering helpers
+    void renderGBufferPass(VkCommandBuffer commandBuffer);
+    void uploadChunksToGPU();
 };

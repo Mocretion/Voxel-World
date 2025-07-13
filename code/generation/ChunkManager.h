@@ -46,8 +46,6 @@ public:
     Chunk* getChunk(int chunkX, int chunkY, int chunkZ);
     bool hasCubeAtWorld(int worldX, int worldY, int worldZ) const;
 
-    std::vector<Vertex> getAllVertices() const;
-    std::vector<uint32_t> getAllIndices() const;
     int getLoadedChunkCount() const;
     std::vector<std::tuple<int, int, int>> getLoadedChunkCoordinates() const;
 

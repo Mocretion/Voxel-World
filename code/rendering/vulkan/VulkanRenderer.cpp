@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <set>
 
+#include "Chunk.h"
+
+
 VulkanRenderer::VulkanRenderer()
 {
     // All Vulkan handles are now initialized in the header file
@@ -224,13 +227,8 @@ bool VulkanRenderer::beginFrame()
     // Reset fence for this frame
     vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
-    // Update buffers if mesh data changed
-    if (meshDataDirty)
-    {
-        createVertexBuffer();
-        createIndexBuffer();
-        meshDataDirty = false;
-    }
+    // NEW: Upload chunks to GPU if needed
+    uploadChunksToGPU();
 
     // Record command buffer
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -289,11 +287,63 @@ void VulkanRenderer::endFrame()
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void VulkanRenderer::updateMeshData(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+void VulkanRenderer::uploadChunksToGPU()
 {
-    currentVertices = vertices;
-    currentIndices = indices;
-    meshDataDirty = true;
+    if (!chunkDataDirty)
+    {
+        return;
+    }
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+    int uploadedCount = 0;
+
+    for (Chunk* chunk : chunksToRender)
+    {
+        if (chunk && chunk->isMeshGenerated())
+        {
+            chunk->uploadToGPU(this);
+            uploadedCount++;
+        }
+    }
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+    if (uploadedCount > 0)
+    {
+        std::cout << "[RENDERER] Uploaded " << uploadedCount << " chunks to GPU in "
+            << duration.count() << "ms" << std::endl;
+    }
+
+    chunkDataDirty = false;
+}
+
+void VulkanRenderer::renderGBufferPass(VkCommandBuffer commandBuffer)
+{
+    gBufferShader->recordCommands(commandBuffer, currentFrame);
+
+    int renderedChunks = 0;
+    for (Chunk* chunk : chunksToRender)
+    {
+        if (chunk && chunk->hasRenderableData())
+        {
+            chunk->draw(commandBuffer, gBufferShader->getPipeline(), gBufferShader->getPipelineLayout());
+            renderedChunks++;
+        }
+    }
+
+    if (renderedChunks > 0)
+    {
+        std::cout << "[RENDER] Drew " << renderedChunks << " chunks in G-buffer pass" << std::endl;
+    }
+}
+
+void VulkanRenderer::renderChunks(const std::vector<Chunk*>& chunks)
+{
+    chunksToRender = chunks;
+    chunkDataDirty = true;
+
+    std::cout << "[RENDERER] Prepared " << chunks.size() << " chunks for rendering" << std::endl;
 }
 
 void VulkanRenderer::updateUniforms(const UniformBufferObject& ubo)
@@ -382,18 +432,6 @@ void VulkanRenderer::cleanup()
         }
 
         cleanupSwapChain();
-
-        if (vertexBuffer != VK_NULL_HANDLE)
-        {
-            vkDestroyBuffer(device, vertexBuffer, nullptr);
-            vkFreeMemory(device, vertexBufferMemory, nullptr);
-        }
-
-        if (indexBuffer != VK_NULL_HANDLE)
-        {
-            vkDestroyBuffer(device, indexBuffer, nullptr);
-            vkFreeMemory(device, indexBufferMemory, nullptr);
-        }
 
         if (descriptorPool != VK_NULL_HANDLE)
         {
@@ -812,72 +850,6 @@ void VulkanRenderer::createCommandPool()
     }
 }
 
-void VulkanRenderer::createVertexBuffer()
-{
-    if (currentVertices.empty())
-    {
-        return; // No vertices to upload
-    }
-
-    VkDeviceSize bufferSize = sizeof(currentVertices[0]) * currentVertices.size();
-
-    // Clean up old buffer if it exists
-    if (vertexBuffer != VK_NULL_HANDLE)
-    {
-        vkDestroyBuffer(device, vertexBuffer, nullptr);
-        vkFreeMemory(device, vertexBufferMemory, nullptr);
-    }
-
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-    void* data;
-    vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, currentVertices.data(), (size_t)bufferSize);
-    vkUnmapMemory(device, stagingBufferMemory);
-
-    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-
-    copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-
-    vkDestroyBuffer(device, stagingBuffer, nullptr);
-    vkFreeMemory(device, stagingBufferMemory, nullptr);
-}
-
-void VulkanRenderer::createIndexBuffer()
-{
-    if (currentIndices.empty())
-    {
-        return; // No indices to upload
-    }
-
-    VkDeviceSize bufferSize = sizeof(currentIndices[0]) * currentIndices.size();
-
-    // Clean up old buffer if it exists
-    if (indexBuffer != VK_NULL_HANDLE)
-    {
-        vkDestroyBuffer(device, indexBuffer, nullptr);
-        vkFreeMemory(device, indexBufferMemory, nullptr);
-    }
-
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-    void* data;
-    vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, currentIndices.data(), (size_t)bufferSize);
-    vkUnmapMemory(device, stagingBufferMemory);
-
-    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
-
-    copyBuffer(stagingBuffer, indexBuffer, bufferSize);
-
-    vkDestroyBuffer(device, stagingBuffer, nullptr);
-    vkFreeMemory(device, stagingBufferMemory, nullptr);
-}
-
 void VulkanRenderer::createDescriptorPool()
 {
     // Calculate descriptor requirements for all 5 shaders:
@@ -970,7 +942,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
         throw std::runtime_error("Failed to begin recording command buffer!");
     }
 
-    // PASS 1: Render to G-buffer
+    // PASS 1: Render to G-buffer with per-chunk drawing
     VkRenderPassBeginInfo gBufferRenderPassInfo{};
     gBufferRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     gBufferRenderPassInfo.renderPass = gBufferRenderPass;
@@ -989,12 +961,8 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
 
     vkCmdBeginRenderPass(commandBuffer, &gBufferRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    gBufferShader->recordCommands(commandBuffer, currentFrame);
-    if (vertexBuffer != VK_NULL_HANDLE && indexBuffer != VK_NULL_HANDLE && !currentIndices.empty())
-    {
-        gBufferShader->bindVertexData(commandBuffer, vertexBuffer, indexBuffer);
-        gBufferShader->drawIndexed(commandBuffer, static_cast<uint32_t>(currentIndices.size()));
-    }
+    // NEW: Use per-chunk rendering instead of single draw call
+    renderGBufferPass(commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -1055,7 +1023,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
     blurRenderPassInfo3.renderArea.offset = { 0, 0 };
     blurRenderPassInfo3.renderArea.extent = swapChainExtent;
     blurRenderPassInfo3.clearValueCount = 1;
-    blurRenderPassInfo3.pClearValues = &blurClearValue;  // Reuse existing blurClearValue
+    blurRenderPassInfo3.pClearValues = &blurClearValue;
 
     vkCmdBeginRenderPass(commandBuffer, &blurRenderPassInfo3, VK_SUBPASS_CONTENTS_INLINE);
     horizontalBlurShader2->recordCommands(commandBuffer, currentFrame);
@@ -1069,7 +1037,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
     blurRenderPassInfo4.renderArea.offset = { 0, 0 };
     blurRenderPassInfo4.renderArea.extent = swapChainExtent;
     blurRenderPassInfo4.clearValueCount = 1;
-    blurRenderPassInfo4.pClearValues = &blurClearValue;  // Reuse existing blurClearValue
+    blurRenderPassInfo4.pClearValues = &blurClearValue;
 
     vkCmdBeginRenderPass(commandBuffer, &blurRenderPassInfo4, VK_SUBPASS_CONTENTS_INLINE);
     verticalBlurShader2->recordCommands(commandBuffer, currentFrame);
@@ -1291,6 +1259,15 @@ void VulkanRenderer::recreateSwapChain()
 
     vkDeviceWaitIdle(device);
 
+    // NEW: Cleanup GPU resources for all chunks before recreating swap chain
+    for (Chunk* chunk : chunksToRender)
+    {
+        if (chunk)
+        {
+            chunk->cleanupGPUResources(device);
+        }
+    }
+
     cleanupSwapChain();
 
     createSwapChain();
@@ -1334,6 +1311,9 @@ void VulkanRenderer::recreateSwapChain()
         compositeShader->setInputTextures(this, gBuffer.positionImageView, gBuffer.normalImageView,
             gBuffer.albedoImageView, ssaoBuffers.blurImage2View, gBufferSampler);
     }
+
+    // Mark that chunks need to be re-uploaded
+    chunkDataDirty = true;
 
     std::cout << "Swap chain and SSAO blur pipeline recreated successfully!" << std::endl;
 }

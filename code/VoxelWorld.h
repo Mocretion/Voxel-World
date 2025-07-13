@@ -44,7 +44,7 @@ private:
     const float TITLE_UPDATE_INTERVAL = 0.1f;
 
     // NEW: Render distance control
-    int renderDistance = 6;  // How many chunks to keep loaded around player
+    int renderDistance = 1;  // How many chunks to keep loaded around player
 
     // Initialization and cleanup
     void initWindow();

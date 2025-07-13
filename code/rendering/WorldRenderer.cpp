@@ -17,7 +17,7 @@ void WorldRenderer::updateWorld(const Camera& camera)
     // Only update terrain if player moved to a different chunk
     if (playerChunk != lastUpdateChunk)
     {
-		std::cout << "Player moved to chunk (" << playerChunk.x << ", " << playerChunk.y << ", " << playerChunk.z
+        std::cout << "Player moved to chunk (" << playerChunk.x << ", " << playerChunk.y << ", " << playerChunk.z
             << ") from (" << lastUpdateChunk.x << ", " << lastUpdateChunk.y << ", " << lastUpdateChunk.z << ")" << std::endl;
 
         currentPlayerChunk = playerChunk;
@@ -28,12 +28,13 @@ void WorldRenderer::updateWorld(const Camera& camera)
         // Remove chunks that are too far away
         removeDistantChunks(playerChunk);
 
-        // Mark mesh data as dirty so it gets uploaded to GPU
+        // NEW: Mark that we need to update chunk rendering list
+        worldDataDirty = true;
         lastUpdateChunk = playerChunk;
     }
 
     int chunksNeedingGeneration = chunkManager.getChunksNeedingGeneration();
-	// Check if a generator is currently running, if not, start generating chunks
+    // Check if a generator is currently running, if not, start generating chunks
     if (chunkManager.getIsDoneGenerating() && chunksNeedingGeneration > 0)
     {
         time = std::chrono::high_resolution_clock::now();
@@ -52,14 +53,61 @@ void WorldRenderer::updateWorld(const Camera& camera)
         chunkManager.updateMeshes();
     }
 
-	// Check if the mesher is done => update mesh data
+    // Check if the mesher is done => update chunk rendering list
     if (chunkManager.getIsDoneMeshing() && !chunkManager.usedNewMeshingValue)
     {
         auto meshDuration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - time);
         std::cout << "Meshed in: " << meshDuration << std::endl;
         chunkManager.usedNewMeshingValue = true;
-        updateMeshData();
+        worldDataDirty = true;  // NEW: Mark that chunk list needs updating
     }
+
+    // NEW: Update renderer with current chunk list if needed
+    if (worldDataDirty)
+    {
+        updateChunkRenderingList();
+        worldDataDirty = false;
+    }
+}
+
+void WorldRenderer::updateChunkRenderingList()
+{
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    // Get all loaded chunks
+    std::vector<std::tuple<int, int, int>> loadedChunkCoords = chunkManager.getLoadedChunkCoordinates();
+
+    // Collect chunks that are ready to render
+    std::vector<Chunk*> chunksToRender;
+    chunksToRender.reserve(loadedChunkCoords.size());
+
+    int totalChunks = 0;
+    int renderableChunks = 0;
+
+    for (const auto& coords : loadedChunkCoords)
+    {
+        int chunkX = std::get<0>(coords);
+        int chunkY = std::get<1>(coords);
+        int chunkZ = std::get<2>(coords);
+
+        Chunk* chunk = chunkManager.getChunk(chunkX, chunkY, chunkZ);
+        totalChunks++;
+
+        if (chunk && chunk->isMeshGenerated() && !chunk->getVertices().empty())
+        {
+            chunksToRender.push_back(chunk);
+            renderableChunks++;
+        }
+    }
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+    std::cout << "[WORLD] Updated chunk rendering list in " << duration.count() << "ms: "
+        << renderableChunks << "/" << totalChunks << " chunks ready to render" << std::endl;
+
+    // Send chunk list to renderer
+    vulkanRenderer->renderChunks(chunksToRender);
 }
 
 glm::ivec3 WorldRenderer::worldPositionToChunk(const glm::vec3& worldPos) const
@@ -128,25 +176,6 @@ void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
     {
         std::cout << "Removed " << chunksRemoved << " distant chunks" << std::endl;
     }
-}
-
-void WorldRenderer::updateMeshData()
-{
-    auto startTime = std::chrono::high_resolution_clock::now();
-
-    // Get all vertices and indices from all currently loaded chunks
-    std::vector<Vertex> allVertices = chunkManager.getAllVertices();
-    std::vector<uint32_t> allIndices = chunkManager.getAllIndices();
-
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-
-    std::cout << "Collected mesh data in " << duration.count() << "ms: "
-        << allVertices.size() << " vertices, "
-        << allIndices.size() << " indices from " << getLoadedChunkCount() << " chunks" << std::endl;
-
-    // Upload the mesh data to the Vulkan renderer
-    vulkanRenderer->updateMeshData(allVertices, allIndices);
 }
 
 void WorldRenderer::render(const Camera& camera, float aspectRatio)

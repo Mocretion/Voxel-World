@@ -29,4 +29,6 @@ void main()
 
     vec3 litColor = fragColor * lightIntensity;
     gAlbedo = vec4(litColor, 1.0);
+
+	gAlbedo = vec4(0.0, 1.0, 0.0, 1.0); // Use original color for albedo
 }
