@@ -87,12 +87,17 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ
     return index;
 }
 
-void ChunkManager::ChunkPool::deallocateChunk(size_t index)
+void ChunkManager::ChunkPool::deallocateChunk(size_t index, VkDevice device)
 {
     std::lock_guard<std::mutex> lock(poolMutex);
 
     if (index < chunks.size() && allocated[index])
     {
+        if (chunks[index])
+        {
+            chunks[index]->cleanupGPUResources(device);
+        }
+
         chunks[index].reset();  // Free the unique_ptr
         allocated[index] = false;
         freeSlots.push_back(index);
@@ -514,7 +519,7 @@ void ChunkManager::markChunksAsDisplayed(const std::vector<Chunk*>& chunks)
 // CHUNK REMOVAL AND CLEANUP
 // ============================================================================
 
-int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance)
+int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance, VkDevice device)
 {
     std::vector<std::tuple<int, int, int>> chunkMeshToRemove;
     std::vector<std::tuple<int, int, int>> chunkDataToRemove;
@@ -554,7 +559,14 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
             auto it = chunkKeyToPoolIndex.find(key);
             if (it != chunkKeyToPoolIndex.end())
             {
-                chunkPool.deallocateChunk(it->second);
+                // Clean up GPU resources before deallocating
+                Chunk* chunk = chunkPool.getChunk(it->second);
+                if (chunk && device != VK_NULL_HANDLE)
+                {
+                    chunk->cleanupGPUResources(device);
+                }
+
+                chunkPool.deallocateChunk(it->second, device);
                 chunkKeyToPoolIndex.erase(it);
 
                 // Remove from queues if present
@@ -571,6 +583,11 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
                 Chunk* chunk = chunkPool.getChunk(it->second);
                 if (chunk)
                 {
+                    // Clean up GPU resources before clearing mesh
+                    if (device != VK_NULL_HANDLE)
+                    {
+                        chunk->cleanupGPUResources(device);
+                    }
                     chunk->clearMesh();
                 }
                 meshingQueue.remove(key);

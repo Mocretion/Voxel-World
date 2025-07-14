@@ -194,12 +194,17 @@ void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
 {
     int removeMeshDistance = renderDistance;
     int removeDataDistance = renderDistance + ADD_CALCULATION_DISTANCE;
-    int chunksRemoved = chunkManager.removeDistantChunks(playerChunk.x, playerChunk.y, playerChunk.z, removeDataDistance, removeMeshDistance);
+
+    // CRITICAL: Pass VkDevice for proper GPU cleanup
+    int chunksRemoved = chunkManager.removeDistantChunks(
+        playerChunk.x, playerChunk.y, playerChunk.z,
+        removeDataDistance, removeMeshDistance,
+        vulkanRenderer->getDevice()  // Pass device for GPU cleanup
+    );
 
     if (chunksRemoved > 0)
     {
         rebuildRenderList();
-
         std::cout << "Removed " << chunksRemoved << " distant chunks" << std::endl;
     }
 }

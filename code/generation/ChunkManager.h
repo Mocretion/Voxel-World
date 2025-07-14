@@ -40,7 +40,7 @@ public:
     void markChunksForMeshing(std::vector<std::tuple<int, int, int>> chunks);
     void generateChunks();
     void updateMeshes();
-    int removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance);
+    int removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance, VkDevice device);
 
     // Query methods
     Chunk* getChunk(int chunkX, int chunkY, int chunkZ);
@@ -75,7 +75,7 @@ private:
         mutable std::mutex poolMutex;               // Protect pool operations
 
         size_t allocateChunk(int chunkX, int chunkY, int chunkZ);
-        void deallocateChunk(size_t index);
+        void deallocateChunk(size_t index, VkDevice device);
         Chunk* getChunk(size_t index);
         const Chunk* getChunk(size_t index) const;
         void clear();
