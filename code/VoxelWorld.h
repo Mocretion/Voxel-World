@@ -43,7 +43,7 @@ private:
     float titleUpdateTimer = 0.0f;
     const float TITLE_UPDATE_INTERVAL = 0.1f;
 
-    // NEW: Render distance control
+    // Render distance control
     int renderDistance = 6;  // How many chunks to keep loaded around player
 
     // Initialization and cleanup
@@ -61,7 +61,7 @@ private:
     void toggleMouseCapture();
     void handleWindowResize(uint32_t newWidth, uint32_t newHeight);
 
-    // NEW: Handle render distance changes
+    // Handle render distance changes
     void increaseRenderDistance();
     void decreaseRenderDistance();
 };

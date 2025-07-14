@@ -16,7 +16,7 @@ public:
     void setToggleMouseCaptureCallback(std::function<void()> callback);
     void setWindowResizeCallback(std::function<void(uint32_t, uint32_t)> callback);
 
-    // NEW: Callbacks for render distance control
+    // Callbacks for render distance control
     void setIncreaseRenderDistanceCallback(std::function<void()> callback);
     void setDecreaseRenderDistanceCallback(std::function<void()> callback);
 
@@ -35,7 +35,7 @@ private:
     std::function<void()> onToggleMouseCapture;
     std::function<void(uint32_t, uint32_t)> onWindowResize;
 
-    // NEW: Render distance callbacks
+    // Render distance callbacks
     std::function<void()> onIncreaseRenderDistance;
     std::function<void()> onDecreaseRenderDistance;
 

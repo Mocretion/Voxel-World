@@ -32,7 +32,7 @@ public:
     bool beginFrame();
     void endFrame();
 
-    // NEW: Per-chunk rendering system (replaces updateMeshData)
+    // Per-chunk rendering system (replaces updateMeshData)
     void renderChunks(const std::vector<Chunk*>& chunks);
 
     // Update uniform buffer (for camera matrices)
@@ -166,7 +166,7 @@ private:
     // VkBuffer indexBuffer = VK_NULL_HANDLE;
     // VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
 
-    // NEW: Store chunks for rendering
+    // Store chunks for rendering
     std::vector<Chunk*> chunksToRender;
     bool chunkDataDirty = false;
 
@@ -245,7 +245,7 @@ private:
     void createBlurRenderPass();
     void createFramebuffers();
 
-    // NEW: Per-chunk rendering helpers
+    // Per-chunk rendering helpers
     void renderGBufferPass(VkCommandBuffer commandBuffer);
     void uploadChunksToGPU();
 };

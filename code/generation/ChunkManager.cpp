@@ -358,8 +358,6 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
         int chunkY = std::get<1>(coords);
         int chunkZ = std::get<2>(coords);
 
-		std::cout << "[FAST " << threadId << "] Generating chunk at(" << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
-
         // Double-check chunk doesn't exist
         {
             std::shared_lock<std::shared_mutex> lock(poolIndexMutex);
@@ -501,6 +499,17 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
         << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
 }
 
+void ChunkManager::markChunksAsDisplayed(const std::vector<Chunk*>& chunks)
+{
+    for (Chunk* chunk : chunks)
+    {
+        if (chunk)
+        {
+            chunk->markAsDisplayed();
+        }
+    }
+}
+
 // ============================================================================
 // CHUNK REMOVAL AND CLEANUP
 // ============================================================================
@@ -628,6 +637,25 @@ std::vector<std::tuple<int, int, int>> ChunkManager::getLoadedChunkCoordinates()
     }
 
     return coordinates;
+}
+
+std::vector<Chunk*> ChunkManager::getNewlyCompletedChunks()
+{
+    std::vector<Chunk*> completedChunks;
+
+    std::shared_lock<std::shared_mutex> poolLock(poolIndexMutex);
+
+    // Check all chunks for newly completed ones
+    for (const auto& pair : chunkKeyToPoolIndex)
+    {
+        Chunk* chunk = chunkPool.getChunk(pair.second);
+        if (chunk && chunk->isNewlyCompleted())
+        {
+            completedChunks.push_back(chunk);
+        }
+    }
+
+    return completedChunks;
 }
 
 // ============================================================================

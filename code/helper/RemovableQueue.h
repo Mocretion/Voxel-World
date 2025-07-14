@@ -42,7 +42,7 @@ public:
         return container.size();
     }
 
-    // NEW: Remove specific item by value
+    // Remove specific item by value
     bool remove(const T& item)
     {
         auto it = std::find(container.begin(), container.end(), item);
@@ -54,7 +54,7 @@ public:
         return false;  // Item not found
     }
 
-    // NEW: Remove all matching items
+    // Remove all matching items
     size_t removeAll(const T& item)
     {
         size_t count = 0;
@@ -74,7 +74,7 @@ public:
         return count;
     }
 
-    // NEW: Remove item by condition (like LINQ Where in C#)
+    // Remove item by condition (like LINQ Where in C#)
     template<typename Predicate>
     size_t removeIf(Predicate pred)
     {
@@ -86,13 +86,13 @@ public:
         return originalSize - container.size();
     }
 
-    // NEW: Check if item exists
+    // Check if item exists
     bool contains(const T& item) const
     {
         return std::find(container.begin(), container.end(), item) != container.end();
     }
 
-    // NEW: Access by index (for debugging)
+    // Access by index (for debugging)
     const T& operator[](size_t index) const
     {
         return container[index];

@@ -227,7 +227,7 @@ bool VulkanRenderer::beginFrame()
     // Reset fence for this frame
     vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
-    // NEW: Upload chunks to GPU if needed
+    // Upload chunks to GPU if needed
     uploadChunksToGPU();
 
     // Record command buffer
@@ -327,7 +327,7 @@ void VulkanRenderer::renderGBufferPass(VkCommandBuffer commandBuffer)
     {
         if (chunk && chunk->hasRenderableData())
         {
-            // NEW: Pass GBufferShader to chunk so it can push constants
+            // Pass GBufferShader to chunk so it can push constants
             chunk->draw(commandBuffer, gBufferShader.get());
             renderedChunks++;
         }
@@ -957,7 +957,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t
 
     vkCmdBeginRenderPass(commandBuffer, &gBufferRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    // NEW: Use per-chunk rendering instead of single draw call
+    // Use per-chunk rendering instead of single draw call
     renderGBufferPass(commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
@@ -1255,7 +1255,7 @@ void VulkanRenderer::recreateSwapChain()
 
     vkDeviceWaitIdle(device);
 
-    // NEW: Cleanup GPU resources for all chunks before recreating swap chain
+    // Cleanup GPU resources for all chunks before recreating swap chain
     for (Chunk* chunk : chunksToRender)
     {
         if (chunk)

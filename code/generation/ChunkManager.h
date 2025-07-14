@@ -55,6 +55,9 @@ public:
     bool getIsDoneGenerating() const { return isDoneGenerating.load(); }
     bool getIsDoneMeshing() const { return isDoneMeshing.load(); }
 
+    std::vector<Chunk*> getNewlyCompletedChunks();
+    void markChunksAsDisplayed(const std::vector<Chunk*>& chunks);
+
     // Public flags for optimization
     std::atomic<bool> usedNewGenerationValue{ true };
     std::atomic<bool> usedNewMeshingValue{ true };
@@ -159,6 +162,9 @@ private:
     void meshChunksWorker(int threadId);
     void processMeshBatch(ThreadWorkBatch& batch, int threadId);
     void processGenerationBatch(ThreadWorkBatch& batch, int threadId);
+
+    mutable std::mutex completedChunksMutex;
+    std::vector<std::tuple<int, int, int>> newlyCompletedChunks;
 
     // Spatial locality helpers
     void sortChunksByDistance(std::vector<std::tuple<int, int, int>>& chunks, int centerX, int centerY, int centerZ);

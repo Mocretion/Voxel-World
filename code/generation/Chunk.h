@@ -10,6 +10,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <chrono>
+#include <atomic>
 
 class VulkanRenderer;
 class ChunkManager;
@@ -97,20 +98,24 @@ public:
     bool isUploadedToGPU() const { return uploadedToGPU; }
     bool hasRenderableData() const { return uploadedToGPU && !indices.empty(); }
 
+    // Completion tracking for incremental display
+    bool isNewlyCompleted() const { return newlyCompleted.load(); }
+    void markAsDisplayed() { newlyCompleted.store(false); }
+
 private:
 
     int chunkX, chunkY, chunkZ;
 
     // Stack-allocated arrays for fast access
     bool cubes[CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
-    bool getCubeAtCoord  (int x, int y, int z) const
+    bool getCubeAtCoord(int x, int y, int z) const
     {
         return cubes[(z * CHUNK_SIZE * CHUNK_SIZE) + (y * CHUNK_SIZE) + x];
-	}
+    }
     void setCubeAtCoord(int x, int y, int z, bool exists)
     {
         cubes[(z * CHUNK_SIZE * CHUNK_SIZE) + (y * CHUNK_SIZE) + x] = exists;
-	}
+    }
 
     float surfaceHeight[CHUNK_SIZE * CHUNK_SIZE];
 
@@ -125,6 +130,9 @@ private:
     VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
     bool uploadedToGPU = false;
     bool gpuResourcesDirty = true;  // Track if mesh changed since last upload
+
+    // Atomic flag for completion tracking
+    std::atomic<bool> newlyCompleted{ false };
 
     // === GREEDY MESHING STRUCTURES ===
 
@@ -182,4 +190,8 @@ private:
     // Helper to get axis coordinates (converts 3D coords to 2D for each axis)
     void getAxisCoords(int axis, int x, int y, int z, int& u, int& v, int& w) const;
     void setAxisCoords(int axis, int u, int v, int w, int& x, int& y, int& z) const;
+
+    // Allow ChunkManager to mark completion
+    friend class ChunkManager;
+    void markNewlyCompleted() { newlyCompleted.store(true); }
 };

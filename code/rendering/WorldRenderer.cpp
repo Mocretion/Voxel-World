@@ -4,7 +4,7 @@
 #include <chrono>
 
 WorldRenderer::WorldRenderer(VulkanRenderer* renderer)
-    : vulkanRenderer(renderer), worldDataDirty(true)
+    : vulkanRenderer(renderer)
 {
     std::cout << "WorldRenderer initialized with render distance: " << renderDistance << " chunks" << std::endl;
 }
@@ -28,8 +28,9 @@ void WorldRenderer::updateWorld(const Camera& camera)
         // Remove chunks that are too far away
         removeDistantChunks(playerChunk);
 
-        // NEW: Mark that we need to update chunk rendering list
-        worldDataDirty = true;
+        // Rebuild the render list when player moves to new chunk
+        rebuildRenderList();
+
         lastUpdateChunk = playerChunk;
     }
 
@@ -53,33 +54,53 @@ void WorldRenderer::updateWorld(const Camera& camera)
         chunkManager.updateMeshes();
     }
 
-    // Check if the mesher is done => update chunk rendering list
-    if (chunkManager.getIsDoneMeshing() && !chunkManager.usedNewMeshingValue)
-    {
-        auto meshDuration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - time);
-        std::cout << "Meshed in: " << meshDuration << std::endl;
-        chunkManager.usedNewMeshingValue = true;
-        worldDataDirty = true;  // NEW: Mark that chunk list needs updating
-    }
+    // Check for newly completed chunks every frame and display them immediately
+    updateIncrementalDisplay();
+}
 
-    // NEW: Update renderer with current chunk list if needed
-    if (worldDataDirty)
+void WorldRenderer::updateIncrementalDisplay()
+{
+    // Get chunks that have just finished meshing
+    std::vector<Chunk*> newlyCompleted = chunkManager.getNewlyCompletedChunks();
+
+    if (!newlyCompleted.empty())
     {
-        updateChunkRenderingList();
-        worldDataDirty = false;
+        std::cout << "[INCREMENTAL] Adding " << newlyCompleted.size() << " newly completed chunks to render list" << std::endl;
+
+        // Add newly completed chunks to our render list
+        for (Chunk* chunk : newlyCompleted)
+        {
+            if (chunk && chunk->isMeshGenerated() && !chunk->getVertices().empty())
+            {
+                // Check if chunk is already in render list to avoid duplicates
+                auto it = std::find(currentRenderChunks.begin(), currentRenderChunks.end(), chunk);
+                if (it == currentRenderChunks.end())
+                {
+                    currentRenderChunks.push_back(chunk);
+                }
+            }
+        }
+
+        // Update the renderer with the new chunk list
+        vulkanRenderer->renderChunks(currentRenderChunks);
+
+        // Mark these chunks as displayed so they won't be processed again
+        chunkManager.markChunksAsDisplayed(newlyCompleted);
+
+        std::cout << "[INCREMENTAL] Total chunks in render list: " << currentRenderChunks.size() << std::endl;
     }
 }
 
-void WorldRenderer::updateChunkRenderingList()
+void WorldRenderer::rebuildRenderList()
 {
     auto startTime = std::chrono::high_resolution_clock::now();
 
     // Get all loaded chunks
     std::vector<std::tuple<int, int, int>> loadedChunkCoords = chunkManager.getLoadedChunkCoordinates();
 
-    // Collect chunks that are ready to render
-    std::vector<Chunk*> chunksToRender;
-    chunksToRender.reserve(loadedChunkCoords.size());
+    // Rebuild the render list from scratch
+    currentRenderChunks.clear();
+    currentRenderChunks.reserve(loadedChunkCoords.size());
 
     int totalChunks = 0;
     int renderableChunks = 0;
@@ -95,19 +116,22 @@ void WorldRenderer::updateChunkRenderingList()
 
         if (chunk && chunk->isMeshGenerated() && !chunk->getVertices().empty())
         {
-            chunksToRender.push_back(chunk);
+            currentRenderChunks.push_back(chunk);
             renderableChunks++;
+
+            // Mark as displayed since we're adding it to render list
+            chunk->markAsDisplayed();
         }
     }
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
-    std::cout << "[WORLD] Updated chunk rendering list in " << duration.count() << "ms: "
+    std::cout << "[REBUILD] Rebuilt chunk rendering list in " << duration.count() << "ms: "
         << renderableChunks << "/" << totalChunks << " chunks ready to render" << std::endl;
 
     // Send chunk list to renderer
-    vulkanRenderer->renderChunks(chunksToRender);
+    vulkanRenderer->renderChunks(currentRenderChunks);
 }
 
 glm::ivec3 WorldRenderer::worldPositionToChunk(const glm::vec3& worldPos) const
@@ -174,6 +198,8 @@ void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
 
     if (chunksRemoved > 0)
     {
+        rebuildRenderList();
+
         std::cout << "Removed " << chunksRemoved << " distant chunks" << std::endl;
     }
 }

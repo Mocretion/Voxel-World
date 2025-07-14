@@ -207,7 +207,10 @@ void Chunk::generateMeshWithManager(ChunkManager* manager, NeighborCache* cache,
     generateGreedyMesh(manager, cache, debug);
 
     setMeshGenerated(true);
-    gpuResourcesDirty = true;  // NEW: Mark that GPU upload is needed
+    gpuResourcesDirty = true;  // Mark that GPU upload is needed
+
+    // Mark this chunk as newly completed for incremental display
+    markNewlyCompleted();
 
     auto endTime = std::chrono::high_resolution_clock::now();
     if (debug)
@@ -236,12 +239,6 @@ void Chunk::generateGreedyMesh(ChunkManager* manager, NeighborCache* cache, bool
     // Z-axis: Back (-Z) and Front (+Z) faces
     generateQuadsForAxis(2, -1, cache, allQuads); // Back faces
     generateQuadsForAxis(2, +1, cache, allQuads); // Front faces
-
-    if (true)
-    {
-        std::cout << "[GREEDY] Generated " << allQuads.size() << " quads for 64x64x64 chunk ("
-            << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
-    }
 
     // Convert all quads to actual mesh data
     convertQuadsToMesh(allQuads);
@@ -574,9 +571,6 @@ void Chunk::uploadToGPU(VulkanRenderer* renderer)
 
     // Clean up old buffers if they exist
     cleanupGPUResources(device);
-
-    std::cout << "[GPU] Uploading chunk (" << chunkX << ", " << chunkY << ", " << chunkZ
-        << ") - " << vertices.size() << " vertices, " << indices.size() << " indices" << std::endl;
 
     // Create vertex buffer
     VkDeviceSize vertexBufferSize = sizeof(Vertex) * vertices.size();

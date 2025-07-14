@@ -129,7 +129,7 @@ void InputManager::handleKeyPress(SDL_Keycode key)
         std::cout << "[DEBUG] F11 key pressed" << std::endl;
         break;
         
-    // NEW: Render distance controls
+    // Render distance controls
     case SDLK_EQUALS:  // + key (without shift)
     case SDLK_PLUS:    // + key (with shift)
         std::cout << "[DEBUG] Plus key pressed - increasing render distance" << std::endl;
@@ -147,7 +147,7 @@ void InputManager::handleKeyPress(SDL_Keycode key)
         }
         break;
         
-    // NEW: Alternative controls using arrow keys
+    // Alternative controls using arrow keys
     case SDLK_UP:
         std::cout << "[DEBUG] Up arrow - increasing render distance" << std::endl;
         if (onIncreaseRenderDistance)
