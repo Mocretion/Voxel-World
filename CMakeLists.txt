@@ -71,10 +71,10 @@ endif()
 
 # Link libraries (vcpkg style)
 target_link_libraries(${PROJECT_NAME} 
-    Vulkan::Vulkan
+    #Vulkan::Vulkan
     SDL2::SDL2
     SDL2::SDL2main
-    glm::glm  # Added GLM since you're using it in Vertex.h
+    # glm::glm  # Added GLM since you're using it in Vertex.h
     FastNoise2
     bgfxRelease
     bimgRelease

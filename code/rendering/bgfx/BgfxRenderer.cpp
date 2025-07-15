@@ -38,78 +38,35 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
         throw;
     }
 
-    // ENHANCED: Try different renderer types with detailed error reporting
-    std::vector<std::pair<bgfx::RendererType::Enum, std::string>> renderers = {
-        {bgfx::RendererType::Vulkan, "Vulkan"},
-        {bgfx::RendererType::Direct3D11, "Direct3D 11"},
-        {bgfx::RendererType::OpenGL, "OpenGL"},
-        {bgfx::RendererType::Direct3D12, "Direct3D 12"},
-        {bgfx::RendererType::Noop, "Noop (Fallback)"}  // Always works as fallback
-    };
-
     bool initSuccess = false;
-    bgfx::RendererType::Enum workingRenderer = bgfx::RendererType::Count;
 
-    for (auto& [rendererType, rendererName] : renderers)
+    bgfx::Init init;
+    init.type = bgfx::RendererType::Vulkan;
+    init.resolution.width = windowWidth;
+    init.resolution.height = windowHeight;
+    //init.resolution.reset = BGFX_RESET_VSYNC;
+	init.debug = BGFX_DEBUG_TEXT; // Default debug level
+
+    const uint8_t maxRenderers = 10;
+    bgfx::RendererType::Enum renderers[maxRenderers];
+    uint8_t count = bgfx::getSupportedRenderers(maxRenderers, renderers);
+
+    printf("Supported renderers (%d):\n", static_cast<int>(count));
+    for (uint8_t i = 0; i < count; ++i)
     {
-        std::cout << "\n=== Trying renderer: " << rendererName << " ===" << std::endl;
-
-        bgfx::Init init;
-        init.type = rendererType;
-        init.resolution.width = windowWidth;
-        init.resolution.height = windowHeight;
-        init.resolution.reset = BGFX_RESET_VSYNC;
-
-        // ENHANCED: Enable maximum debug output
-        init.debug = BGFX_DEBUG_TEXT | BGFX_DEBUG_STATS;
-
-        // ENHANCED: Set callback for detailed error reporting
-        init.callback = nullptr; // We'll add custom callback if needed
-
-        std::cout << "Attempting bgfx::init() with " << rendererName << "..." << std::endl;
-
-        if (bgfx::init(init))
-        {
-            std::cout << "SUCCESS: " << rendererName << " initialized!" << std::endl;
-            workingRenderer = rendererType;
-            initSuccess = true;
-            break;
-        }
-        else
-        {
-            std::cout << "FAILED: " << rendererName << " failed to initialize" << std::endl;
-
-            // ENHANCED: Try to get more details about why it failed
-            const bgfx::Caps* caps = bgfx::getCaps();
-            if (caps)
-            {
-                std::cout << "  Available renderer caps detected, but init still failed" << std::endl;
-            }
-            else
-            {
-                std::cout << "  No renderer caps available - likely driver/system issue" << std::endl;
-            }
-        }
+        printf("  [%d] %s\n", static_cast<int>(renderers[i]), bgfx::getRendererName(renderers[i]));
     }
 
-    if (!initSuccess)
+    if (bgfx::init(init))
     {
-        std::cerr << "\n=== BGFX INITIALIZATION FAILURE ANALYSIS ===" << std::endl;
-        std::cerr << "All renderer types failed! This indicates:" << std::endl;
-        std::cerr << "1. Runtime library mismatch (/MT vs /MD)" << std::endl;
-        std::cerr << "2. Missing Visual C++ Redistributable" << std::endl;
-        std::cerr << "3. bgfx binary architecture mismatch" << std::endl;
-        std::cerr << "4. Graphics drivers too old" << std::endl;
-        std::cerr << "5. Running in VM without GPU acceleration" << std::endl;
-        std::cerr << "\nDebugging steps:" << std::endl;
-        std::cerr << "- Check if bgfxRelease.lib matches your compiler settings" << std::endl;
-        std::cerr << "- Verify Visual C++ Redistributable is installed" << std::endl;
-        std::cerr << "- Try building bgfx from source with matching settings" << std::endl;
-        throw std::runtime_error("No compatible renderer found!");
+        std::cout << "SUCCESS: Vulkan initialized!" << std::endl;
+        initSuccess = true;
     }
-
-    std::cout << "\nbgfx::init() successful with " << bgfx::getRendererName(workingRenderer) << "!" << std::endl;
-
+    else
+    {
+        std::cout << "FAILED: Vulkan failed to initialize" << std::endl;
+    }
+   
     // Print detailed renderer info
     const bgfx::Caps* caps = bgfx::getCaps();
     if (caps)
