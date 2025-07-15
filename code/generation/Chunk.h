@@ -11,6 +11,7 @@
 #include <shared_mutex>
 #include <chrono>
 #include <atomic>
+#include <bgfx/bgfx.h>
 
 class VulkanRenderer;
 class ChunkManager;
@@ -69,9 +70,9 @@ public:
 
     void clearMesh();
 
-    void uploadToGPU(VulkanRenderer* renderer);
-    void draw(VkCommandBuffer commandBuffer, GBufferShader* gBufferShader);
-    void cleanupGPUResources(VkDevice device);
+    void uploadToBgfx(class BgfxRenderer* renderer);
+    void draw(class BgfxRenderer* renderer);
+    void cleanupBgfxResources();
 
     // Get the generated vertices and indices
     const std::vector<Vertex>& getVertices() const { return vertices; }
@@ -96,7 +97,11 @@ public:
     void setMeshGenerated(bool isGenerated) { meshGenerated = isGenerated; }
 
     bool isUploadedToGPU() const { return uploadedToGPU; }
-    bool hasRenderableData() const { return uploadedToGPU && !indices.empty(); }
+    bool hasRenderableData() const
+    {
+        return meshGenerated && !indices.empty() &&
+            bgfx::isValid(vertexBuffer) && bgfx::isValid(indexBuffer);
+    }
 
     // Completion tracking for incremental display
     bool isNewlyCompleted() const { return newlyCompleted.load(); }
@@ -124,10 +129,8 @@ private:
     std::vector<uint32_t> indices;
     bool meshGenerated = false;
 
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
-    VkBuffer indexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
+    bgfx::VertexBufferHandle vertexBuffer = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle indexBuffer = BGFX_INVALID_HANDLE;
     bool uploadedToGPU = false;
     bool gpuResourcesDirty = true;  // Track if mesh changed since last upload
 

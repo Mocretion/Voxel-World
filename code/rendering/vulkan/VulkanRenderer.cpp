@@ -1,4 +1,4 @@
-﻿#include "VulkanRenderer.h"
+﻿/*#include "VulkanRenderer.h"
 #include "ResourceManager.h"
 
 #include "GBufferShader.h"
@@ -301,7 +301,7 @@ void VulkanRenderer::uploadChunksToGPU()
     {
         if (chunk && chunk->isMeshGenerated())
         {
-            chunk->uploadToGPU(this);
+            chunk->uploadToBgfx();
             uploadedCount++;
         }
     }

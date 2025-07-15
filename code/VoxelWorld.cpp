@@ -1,8 +1,8 @@
 #include "VoxelWorld.h"
-#include "rendering/vulkan/VulkanRenderer.h"
-#include "user/InputManager.h"
-#include "rendering/WorldRenderer.h"
-#include "user/Camera.h"
+#include "BgfxRenderer.h"  // Changed from VulkanRenderer
+#include "InputManager.h"
+#include "WorldRenderer.h"
+#include "Camera.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -35,14 +35,14 @@ void VoxelWorld::initWindow()
         throw std::runtime_error("Failed to initialize SDL");
     }
 
-    // Create window with Vulkan support
+    // Create window - no need for Vulkan flag with bgfx
     window = SDL_CreateWindow(
         "Voxel World",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         currentWindowWidth,
         currentWindowHeight,
-        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+        SDL_WINDOW_RESIZABLE
     );
 
     if (!window)
@@ -55,8 +55,8 @@ void VoxelWorld::initComponents()
 {
     std::cout << "Initializing components..." << std::endl;
 
-    // Initialize Vulkan renderer
-    renderer = std::make_unique<VulkanRenderer>();
+    // Initialize bgfx renderer
+    renderer = std::make_unique<BgfxRenderer>();
     renderer->initialize(window, currentWindowWidth, currentWindowHeight);
 
     // Initialize input manager
@@ -150,7 +150,7 @@ void VoxelWorld::updateWindowTitle()
         glm::ivec2 currentChunk = worldRenderer->getCurrentPlayerChunk();
         int loadedChunks = worldRenderer->getLoadedChunkCount();
 
-        // Create title without threading info
+        // Create title
         std::string title = "Voxel World - Pos: (" +
             std::to_string(static_cast<int>(pos.x)) + ", " +
             std::to_string(static_cast<int>(pos.y)) + ", " +
@@ -189,7 +189,7 @@ void VoxelWorld::handleWindowResize(uint32_t newWidth, uint32_t newHeight)
     currentWindowWidth = newWidth;
     currentWindowHeight = newHeight;
 
-    // Notify the Vulkan renderer about the resize
+    // Notify the bgfx renderer about the resize
     renderer->handleResize(newWidth, newHeight);
 
     std::cout << "[DEBUG] Window resize handled successfully" << std::endl;
