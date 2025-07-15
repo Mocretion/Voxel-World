@@ -38,59 +38,89 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
         throw;
     }
 
-    // Try different renderer types in order of preference (Vulkan first!)
-    std::vector<bgfx::RendererType::Enum> renderers = {
-        bgfx::RendererType::Vulkan,       // Try Vulkan FIRST - you already have drivers
-        bgfx::RendererType::Direct3D11,
-        bgfx::RendererType::OpenGL,
-        bgfx::RendererType::Direct3D12
+    // ENHANCED: Try different renderer types with detailed error reporting
+    std::vector<std::pair<bgfx::RendererType::Enum, std::string>> renderers = {
+        {bgfx::RendererType::Vulkan, "Vulkan"},
+        {bgfx::RendererType::Direct3D11, "Direct3D 11"},
+        {bgfx::RendererType::OpenGL, "OpenGL"},
+        {bgfx::RendererType::Direct3D12, "Direct3D 12"},
+        {bgfx::RendererType::Noop, "Noop (Fallback)"}  // Always works as fallback
     };
 
     bool initSuccess = false;
     bgfx::RendererType::Enum workingRenderer = bgfx::RendererType::Count;
 
-    for (auto rendererType : renderers)
+    for (auto& [rendererType, rendererName] : renderers)
     {
-        std::cout << "Trying renderer: " << bgfx::getRendererName(rendererType) << std::endl;
+        std::cout << "\n=== Trying renderer: " << rendererName << " ===" << std::endl;
 
         bgfx::Init init;
         init.type = rendererType;
         init.resolution.width = windowWidth;
         init.resolution.height = windowHeight;
         init.resolution.reset = BGFX_RESET_VSYNC;
-        init.debug = BGFX_DEBUG_TEXT;
+
+        // ENHANCED: Enable maximum debug output
+        init.debug = BGFX_DEBUG_TEXT | BGFX_DEBUG_STATS;
+
+        // ENHANCED: Set callback for detailed error reporting
+        init.callback = nullptr; // We'll add custom callback if needed
+
+        std::cout << "Attempting bgfx::init() with " << rendererName << "..." << std::endl;
 
         if (bgfx::init(init))
         {
-            std::cout << "SUCCESS: " << bgfx::getRendererName(rendererType) << " initialized!" << std::endl;
+            std::cout << "SUCCESS: " << rendererName << " initialized!" << std::endl;
             workingRenderer = rendererType;
             initSuccess = true;
             break;
         }
         else
         {
-            std::cout << "FAILED: " << bgfx::getRendererName(rendererType) << " failed to initialize" << std::endl;
+            std::cout << "FAILED: " << rendererName << " failed to initialize" << std::endl;
+
+            // ENHANCED: Try to get more details about why it failed
+            const bgfx::Caps* caps = bgfx::getCaps();
+            if (caps)
+            {
+                std::cout << "  Available renderer caps detected, but init still failed" << std::endl;
+            }
+            else
+            {
+                std::cout << "  No renderer caps available - likely driver/system issue" << std::endl;
+            }
         }
     }
 
     if (!initSuccess)
     {
-        std::cerr << "All renderer types failed!" << std::endl;
-        std::cerr << "This usually means:" << std::endl;
-        std::cerr << "1. Graphics drivers are too old" << std::endl;
-        std::cerr << "2. Running in a VM without GPU acceleration" << std::endl;
-        std::cerr << "3. Missing Visual C++ Redistributable" << std::endl;
-        std::cerr << "4. bgfx binary is incompatible with your system" << std::endl;
+        std::cerr << "\n=== BGFX INITIALIZATION FAILURE ANALYSIS ===" << std::endl;
+        std::cerr << "All renderer types failed! This indicates:" << std::endl;
+        std::cerr << "1. Runtime library mismatch (/MT vs /MD)" << std::endl;
+        std::cerr << "2. Missing Visual C++ Redistributable" << std::endl;
+        std::cerr << "3. bgfx binary architecture mismatch" << std::endl;
+        std::cerr << "4. Graphics drivers too old" << std::endl;
+        std::cerr << "5. Running in VM without GPU acceleration" << std::endl;
+        std::cerr << "\nDebugging steps:" << std::endl;
+        std::cerr << "- Check if bgfxRelease.lib matches your compiler settings" << std::endl;
+        std::cerr << "- Verify Visual C++ Redistributable is installed" << std::endl;
+        std::cerr << "- Try building bgfx from source with matching settings" << std::endl;
         throw std::runtime_error("No compatible renderer found!");
     }
 
-    std::cout << "bgfx::init() successful with " << bgfx::getRendererName(workingRenderer) << "!" << std::endl;
+    std::cout << "\nbgfx::init() successful with " << bgfx::getRendererName(workingRenderer) << "!" << std::endl;
 
-    // Print renderer info
+    // Print detailed renderer info
     const bgfx::Caps* caps = bgfx::getCaps();
-    std::cout << "Renderer: " << bgfx::getRendererName(caps->rendererType) << std::endl;
-    std::cout << "Vendor: 0x" << std::hex << caps->vendorId << std::dec << std::endl;
-    std::cout << "Device: 0x" << std::hex << caps->deviceId << std::dec << std::endl;
+    if (caps)
+    {
+        std::cout << "\n=== RENDERER CAPABILITIES ===" << std::endl;
+        std::cout << "Renderer: " << bgfx::getRendererName(caps->rendererType) << std::endl;
+        std::cout << "Vendor ID: 0x" << std::hex << caps->vendorId << std::dec << std::endl;
+        std::cout << "Device ID: 0x" << std::hex << caps->deviceId << std::dec << std::endl;
+        std::cout << "Max texture size: " << caps->limits.maxTextureSize << std::endl;
+        std::cout << "Supported features: " << caps->supported << std::endl;
+    }
 
     // Set view 0 clear state
     bgfx::setViewClear(0
@@ -145,7 +175,7 @@ void BgfxRenderer::setupPlatformData()
     }
 
     pd.nwh = wmi.info.win.window;
-    std::cout << "Window handle: " << pd.nwh << std::endl;
+    std::cout << "Window handle: " << std::hex << pd.nwh << std::dec << std::endl;
 
     if (!pd.nwh)
     {
