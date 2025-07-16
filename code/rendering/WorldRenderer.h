@@ -6,12 +6,12 @@
 #include "Chunk.h"
 #include "ChunkManager.h"
 #include "Camera.h"
-#include "VulkanRenderer.h"
+#include "BgfxRenderer.h"  // Changed from VulkanRenderer
 #include <chrono>
 
 class WorldRenderer {
 public:
-    WorldRenderer(VulkanRenderer* renderer);
+    WorldRenderer(BgfxRenderer* renderer);  // Changed from VulkanRenderer
 
     // Set the render distance (in chunks)
     void setRenderDistance(int distance) { renderDistance = distance; }
@@ -31,7 +31,7 @@ public:
     glm::ivec2 getCurrentPlayerChunk() const { return currentPlayerChunk; }
 
 private:
-    VulkanRenderer* vulkanRenderer;
+    BgfxRenderer* bgfxRenderer;  // Changed from vulkanRenderer
     ChunkManager chunkManager;
 
     // Infinite terrain settings

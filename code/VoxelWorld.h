@@ -6,7 +6,7 @@
 #include <string>
 
 // Forward declarations to avoid including heavy headers
-class VulkanRenderer;
+class BgfxRenderer;  // Changed from VulkanRenderer
 class InputManager;
 class WorldRenderer;
 class Camera;
@@ -30,7 +30,7 @@ private:
     SDL_Window* window = nullptr;
 
     // Core components (using smart pointers for automatic cleanup)
-    std::unique_ptr<VulkanRenderer> renderer;
+    std::unique_ptr<BgfxRenderer> renderer;  // Changed from VulkanRenderer
     std::unique_ptr<InputManager> inputManager;
     std::unique_ptr<WorldRenderer> worldRenderer;
     std::unique_ptr<Camera> camera;
@@ -39,7 +39,7 @@ private:
     std::chrono::high_resolution_clock::time_point lastFrameTime;
     float deltaTime = 0.0f;
 
-    // HUD/Window titleVulkanRenderer: Updating SSAO uniforms,
+    // HUD/Window title
     float titleUpdateTimer = 0.0f;
     const float TITLE_UPDATE_INTERVAL = 0.1f;
 

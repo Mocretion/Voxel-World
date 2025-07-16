@@ -16,7 +16,7 @@ add_subdirectory(external/FastNoise2)
 find_package(OpenMP REQUIRED)
 
 # Find Vulkan
-find_package(Vulkan REQUIRED)
+# find_package(Vulkan REQUIRED)
 
 # Find SDL2 (vcpkg style)
 find_package(SDL2 CONFIG REQUIRED)
@@ -35,22 +35,20 @@ add_executable(${PROJECT_NAME}
     "code/noise/PerlinNoise.cpp"
     "code/user/InputManager.cpp"
     "code/helper/ResourceManager.cpp"
-    "code/rendering/vulkan/VulkanRenderer.cpp"
+    #"code/rendering/vulkan/VulkanRenderer.cpp"
     "code/rendering/WorldRenderer.cpp"
-    "code/rendering/shader/CompositeShader.cpp"
-    "code/rendering/shader/GBufferShader.cpp"
-    "code/rendering/shader/Shader.cpp"
-    "code/rendering/shader/SSAOShader.cpp"
-    "code/rendering/shader/SSAOBlurShader.cpp"
     # Add any other .cpp files here as you create them
-)
+ "code/rendering/bgfx/BgfxRenderer.h" "code/rendering/bgfx/BgfxRenderer.cpp")
 
 target_include_directories(${PROJECT_NAME}
     PRIVATE
     "external/FastNoise2/src"
+    "external/bgfx/include"
+    "external/bx/include"
+    "external/bimg/include"
     ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering
     ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering/shader
-    ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering/vulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering/bgfx
     ${CMAKE_CURRENT_SOURCE_DIR}/code/user
     ${CMAKE_CURRENT_SOURCE_DIR}/code/noise
     ${CMAKE_CURRENT_SOURCE_DIR}/code/helper
@@ -72,12 +70,20 @@ endif()
 
 # Link libraries (vcpkg style)
 target_link_libraries(${PROJECT_NAME} 
-    Vulkan::Vulkan
+    #Vulkan::Vulkan
     SDL2::SDL2
     SDL2::SDL2main
-    glm::glm  # Added GLM since you're using it in Vertex.h
+    # glm::glm  # Added GLM since you're using it in Vertex.h
     FastNoise2
+    bgfxRelease
+    bimgRelease
+    bxRelease
 )
+
+target_link_directories(${PROJECT_NAME}
+    PRIVATE
+    "./external/bgfx/.build/win64_vs2022/bin/"
+)   
 
 # Set subsystem to console (optional, for debugging)
 if(WIN32)

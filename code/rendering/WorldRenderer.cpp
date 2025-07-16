@@ -2,9 +2,10 @@
 #include <iostream>
 #include <cmath>
 #include <chrono>
+#include <bgfx\BgfxRenderer.h>
 
-WorldRenderer::WorldRenderer(VulkanRenderer* renderer)
-    : vulkanRenderer(renderer)
+WorldRenderer::WorldRenderer(BgfxRenderer* renderer)  // Changed parameter type
+    : bgfxRenderer(renderer)  // Changed member name
 {
     std::cout << "WorldRenderer initialized with render distance: " << renderDistance << " chunks" << std::endl;
 }
@@ -82,7 +83,7 @@ void WorldRenderer::updateIncrementalDisplay()
         }
 
         // Update the renderer with the new chunk list
-        vulkanRenderer->renderChunks(currentRenderChunks);
+        bgfxRenderer->renderChunks(currentRenderChunks);  // Changed method call
 
         // Mark these chunks as displayed so they won't be processed again
         chunkManager.markChunksAsDisplayed(newlyCompleted);
@@ -131,7 +132,7 @@ void WorldRenderer::rebuildRenderList()
         << renderableChunks << "/" << totalChunks << " chunks ready to render" << std::endl;
 
     // Send chunk list to renderer
-    vulkanRenderer->renderChunks(currentRenderChunks);
+    bgfxRenderer->renderChunks(currentRenderChunks);  // Changed method call
 }
 
 glm::ivec3 WorldRenderer::worldPositionToChunk(const glm::vec3& worldPos) const
@@ -195,11 +196,10 @@ void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
     int removeMeshDistance = renderDistance;
     int removeDataDistance = renderDistance + ADD_CALCULATION_DISTANCE;
 
-    // CRITICAL: Pass VkDevice for proper GPU cleanup
+    // Note: bgfx cleanup will be handled in Chunk::cleanupBgfxResources()
     int chunksRemoved = chunkManager.removeDistantChunks(
         playerChunk.x, playerChunk.y, playerChunk.z,
-        removeDataDistance, removeMeshDistance,
-        vulkanRenderer->getDevice()  // Pass device for GPU cleanup
+        removeDataDistance, removeMeshDistance
     );
 
     if (chunksRemoved > 0)
@@ -215,9 +215,7 @@ void WorldRenderer::render(const Camera& camera, float aspectRatio)
     UniformBufferObject ubo = createUBO(camera, aspectRatio);
 
     // Update the renderer's uniform buffers
-    vulkanRenderer->updateUniforms(ubo);
-
-    vulkanRenderer->updateSSAOUniforms(camera, aspectRatio);
+    bgfxRenderer->updateUniforms(ubo);  // Changed method call
 }
 
 int WorldRenderer::getLoadedChunkCount() const
@@ -275,8 +273,8 @@ UniformBufferObject WorldRenderer::createUBO(const Camera& camera, float aspectR
         1000.0f              // Far plane (large for voxel world)
     );
 
-    // Vulkan has inverted Y coordinate compared to OpenGL
-    ubo.proj[1][1] *= -1;
+    // bgfx coordinate system might need adjustment
+    // ubo.proj[1][1] *= -1; // Only needed for Vulkan
 
     return ubo;
 }

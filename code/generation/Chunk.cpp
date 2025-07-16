@@ -6,16 +6,15 @@
 #include <chrono>
 #include <cstring>
 #include "PerlinNoise.h"
-#include "VulkanRenderer.h"
-#include "GBufferShader.h"
+#include "BgfxRenderer.h"
+#include <bgfx/bgfx.h>
 
 // Define the cube size
 const float Chunk::CUBE_SIZE = 1.0f;
 
 Chunk::Chunk(int chunkX, int chunkY, int chunkZ)
     : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ),
-    vertexBuffer(VK_NULL_HANDLE), vertexBufferMemory(VK_NULL_HANDLE),
-    indexBuffer(VK_NULL_HANDLE), indexBufferMemory(VK_NULL_HANDLE),
+    vertexBuffer(BGFX_INVALID_HANDLE), indexBuffer(BGFX_INVALID_HANDLE),
     uploadedToGPU(false), gpuResourcesDirty(true)
 {
     // Zero out arrays super fast
@@ -30,9 +29,9 @@ Chunk::~Chunk()
 {
     // GPU resources should be cleaned up explicitly via cleanupGPUResources()
     // before destruction, but add safety check
-    if (vertexBuffer != VK_NULL_HANDLE || indexBuffer != VK_NULL_HANDLE)
+    if (bgfx::isValid(vertexBuffer) || bgfx::isValid(indexBuffer))
     {
-        std::cerr << "Warning: Chunk destroyed without cleaning up GPU resources!" << std::endl;
+        std::cerr << "Warning: Chunk destroyed without cleaning up bgfx resources!" << std::endl;
     }
 }
 
@@ -553,151 +552,80 @@ void Chunk::addQuadToMesh(const Quad& quad)
         });
 }
 
-void Chunk::uploadToGPU(VulkanRenderer* renderer)
+void Chunk::uploadToBgfx(BgfxRenderer* renderer)
 {
     if (!meshGenerated || vertices.empty() || indices.empty())
     {
-        // No mesh data to upload
         return;
     }
 
     if (uploadedToGPU && !gpuResourcesDirty)
     {
-        // Already uploaded and no changes
         return;
     }
 
-    VkDevice device = renderer->getDevice();
-
-    // Clean up old buffers if they exist
-    cleanupGPUResources(device);
+    // Clean up old buffers
+    cleanupBgfxResources();
 
     // Create vertex buffer
-    VkDeviceSize vertexBufferSize = sizeof(Vertex) * vertices.size();
-    if (vertexBufferSize > 0)
-    {
-        // Create staging buffer
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        renderer->createBuffer(vertexBufferSize,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
+    renderer->createVertexBuffer(vertices, vertexBuffer);
 
-        // Copy vertex data to staging buffer
-        void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, vertexBufferSize, 0, &data);
-        memcpy(data, vertices.data(), static_cast<size_t>(vertexBufferSize));
-        vkUnmapMemory(device, stagingBufferMemory);
-
-        // Create vertex buffer on GPU
-        renderer->createBuffer(vertexBufferSize,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            vertexBuffer, vertexBufferMemory);
-
-        // Copy from staging to GPU buffer
-        VkCommandBuffer commandBuffer = renderer->beginSingleTimeCommands();
-        VkBufferCopy copyRegion{};
-        copyRegion.size = vertexBufferSize;
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer, vertexBuffer, 1, &copyRegion);
-        renderer->endSingleTimeCommands(commandBuffer);
-
-        // Cleanup staging buffer
-        vkDestroyBuffer(device, stagingBuffer, nullptr);
-        vkFreeMemory(device, stagingBufferMemory, nullptr);
-    }
-
-    // Create index buffer
-    VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
-    if (indexBufferSize > 0)
-    {
-        // Create staging buffer
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        renderer->createBuffer(indexBufferSize,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
-
-        // Copy index data to staging buffer
-        void* data;
-        vkMapMemory(device, stagingBufferMemory, 0, indexBufferSize, 0, &data);
-        memcpy(data, indices.data(), static_cast<size_t>(indexBufferSize));
-        vkUnmapMemory(device, stagingBufferMemory);
-
-        // Create index buffer on GPU
-        renderer->createBuffer(indexBufferSize,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            indexBuffer, indexBufferMemory);
-
-        // Copy from staging to GPU buffer
-        VkCommandBuffer commandBuffer = renderer->beginSingleTimeCommands();
-        VkBufferCopy copyRegion{};
-        copyRegion.size = indexBufferSize;
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer, indexBuffer, 1, &copyRegion);
-        renderer->endSingleTimeCommands(commandBuffer);
-
-        // Cleanup staging buffer
-        vkDestroyBuffer(device, stagingBuffer, nullptr);
-        vkFreeMemory(device, stagingBufferMemory, nullptr);
-    }
+    // Create index buffer  
+    renderer->createIndexBuffer(indices, indexBuffer);
 
     uploadedToGPU = true;
     gpuResourcesDirty = false;
+
+    std::cout << "[BGFX] Uploaded chunk (" << chunkX << "," << chunkY << "," << chunkZ
+        << ") with " << vertices.size() << " vertices. VBufferValid: " << bgfx::isValid(vertexBuffer) <<
+        ". IBufferValid: " << bgfx::isValid(indexBuffer) << std::endl;
 }
 
-void Chunk::draw(VkCommandBuffer commandBuffer, GBufferShader* gBufferShader)
+void Chunk::cleanupBgfxResources()
 {
-    if (!hasRenderableData())
+    if (bgfx::isValid(vertexBuffer))
     {
-        // No data to render
-        return;
+        bgfx::destroy(vertexBuffer);
+        vertexBuffer = BGFX_INVALID_HANDLE;
     }
 
-    // Push chunk coordinates to shader
-    gBufferShader->pushChunkConstants(commandBuffer, chunkX, chunkY, chunkZ);
-
-    // Bind vertex buffer
-    if (vertexBuffer != VK_NULL_HANDLE)
+    if (bgfx::isValid(indexBuffer))
     {
-        VkBuffer vertexBuffers[] = { vertexBuffer };
-        VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-    }
-
-    // Bind index buffer and draw
-    if (indexBuffer != VK_NULL_HANDLE && !indices.empty())
-    {
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-    }
-}
-
-void Chunk::cleanupGPUResources(VkDevice device)
-{
-    if (vertexBuffer != VK_NULL_HANDLE)
-    {
-        vkDestroyBuffer(device, vertexBuffer, nullptr);
-        vertexBuffer = VK_NULL_HANDLE;
-    }
-    if (vertexBufferMemory != VK_NULL_HANDLE)
-    {
-        vkFreeMemory(device, vertexBufferMemory, nullptr);
-        vertexBufferMemory = VK_NULL_HANDLE;
-    }
-    if (indexBuffer != VK_NULL_HANDLE)
-    {
-        vkDestroyBuffer(device, indexBuffer, nullptr);
-        indexBuffer = VK_NULL_HANDLE;
-    }
-    if (indexBufferMemory != VK_NULL_HANDLE)
-    {
-        vkFreeMemory(device, indexBufferMemory, nullptr);
-        indexBufferMemory = VK_NULL_HANDLE;
+        bgfx::destroy(indexBuffer);
+        indexBuffer = BGFX_INVALID_HANDLE;
     }
 
     uploadedToGPU = false;
     gpuResourcesDirty = true;
+}
+
+void Chunk::draw(BgfxRenderer* renderer)
+{
+    if (!hasRenderableData())
+    {
+        // Upload to GPU if needed
+        uploadToBgfx(renderer);
+
+        // Check again after upload
+        if (!hasRenderableData())
+        {
+            return;
+        }
+    }
+
+    // Set vertex and index buffers
+    bgfx::setVertexBuffer(0, vertexBuffer);
+    bgfx::setIndexBuffer(indexBuffer);
+
+    // Set render state
+    uint64_t state = BGFX_STATE_WRITE_RGB
+        | BGFX_STATE_WRITE_A
+        | BGFX_STATE_WRITE_Z
+        | BGFX_STATE_DEPTH_TEST_LESS
+        | BGFX_STATE_CULL_CW;
+
+    bgfx::setState(state);
+
+    // Submit draw call
+    bgfx::submit(0, renderer->getShaderProgram());
 }
