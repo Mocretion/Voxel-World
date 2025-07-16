@@ -26,37 +26,36 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
     std::cout << "Initializing bgfx renderer..." << std::endl;
     std::cout << "Window size: " << windowWidth << "x" << windowHeight << std::endl;
 
-    // Setup platform data for bgfx
-    try
-    {
-        setupPlatformData();
-        std::cout << "Platform data setup successful" << std::endl;
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << "Platform data setup failed: " << e.what() << std::endl;
-        throw;
-    }
-
     bool initSuccess = false;
 
     bgfx::Init init;
     init.type = bgfx::RendererType::Vulkan;
+    init.vendorId = BGFX_PCI_ID_NONE;  // Auto-detect GPU
     init.resolution.width = windowWidth;
     init.resolution.height = windowHeight;
-    //init.resolution.reset = BGFX_RESET_VSYNC;
+    init.resolution.reset = BGFX_RESET_VSYNC;
+    init.limits.maxEncoders = 1;  // Single-threaded
+    init.callback = nullptr;  // Or add custom callback
+    init.allocator = nullptr;  // Use default
 	init.debug = BGFX_DEBUG_TEXT; // Default debug level
 
-    const uint8_t maxRenderers = 10;
-    bgfx::RendererType::Enum renderers[maxRenderers];
-    uint8_t count = bgfx::getSupportedRenderers(maxRenderers, renderers);
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
 
-    printf("Supported renderers (%d):\n", static_cast<int>(count));
-    for (uint8_t i = 0; i < count; ++i)
+    // Link with SDL window
+    if (SDL_GetWindowWMInfo(window, &wmInfo))
     {
-        printf("  [%d] %s\n", static_cast<int>(renderers[i]), bgfx::getRendererName(renderers[i]));
+        // On Windows
+        HWND hwnd = wmInfo.info.win.window;
+        init.platformData.nwh = hwnd;
+    }
+    else
+    {
+        // Failed to get window info
+        printf("Failed to get native window handle\n");
     }
 
+    // Start the window
     if (bgfx::init(init))
     {
         std::cout << "SUCCESS: Vulkan initialized!" << std::endl;
@@ -66,29 +65,19 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
     {
         std::cout << "FAILED: Vulkan failed to initialize" << std::endl;
     }
-   
-    // Print detailed renderer info
-    const bgfx::Caps* caps = bgfx::getCaps();
-    if (caps)
-    {
-        std::cout << "\n=== RENDERER CAPABILITIES ===" << std::endl;
-        std::cout << "Renderer: " << bgfx::getRendererName(caps->rendererType) << std::endl;
-        std::cout << "Vendor ID: 0x" << std::hex << caps->vendorId << std::dec << std::endl;
-        std::cout << "Device ID: 0x" << std::hex << caps->deviceId << std::dec << std::endl;
-        std::cout << "Max texture size: " << caps->limits.maxTextureSize << std::endl;
-        std::cout << "Supported features: " << caps->supported << std::endl;
-    }
 
     // Set view 0 clear state
     bgfx::setViewClear(0
         , BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH
-        , 0x303030ff  // Dark gray background
+        , 0x303030ff
         , 1.0f
         , 0
     );
-
+    
     // Set view rect for view 0
     bgfx::setViewRect(0, 0, 0, uint16_t(windowWidth), uint16_t(windowHeight));
+
+    
 
     try
     {
@@ -103,64 +92,6 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
     }
 
     std::cout << "bgfx renderer initialized successfully!" << std::endl;
-}
-
-void BgfxRenderer::setupPlatformData()
-{
-    bgfx::PlatformData pd;
-    memset(&pd, 0, sizeof(pd)); // Initialize to zero
-
-    std::cout << "Setting up platform data..." << std::endl;
-
-#ifdef _WIN32
-    SDL_SysWMinfo wmi;
-    SDL_VERSION(&wmi.version);
-
-    std::cout << "Getting Windows window info..." << std::endl;
-    if (!SDL_GetWindowWMInfo(window, &wmi))
-    {
-        std::cerr << "SDL_GetWindowWMInfo failed: " << SDL_GetError() << std::endl;
-        throw std::runtime_error("Failed to get window info");
-    }
-
-    std::cout << "Window subsystem: " << wmi.subsystem << std::endl;
-
-    if (wmi.subsystem != SDL_SYSWM_WINDOWS)
-    {
-        std::cerr << "Expected Windows subsystem, got: " << wmi.subsystem << std::endl;
-        throw std::runtime_error("Not running on Windows subsystem");
-    }
-
-    pd.nwh = wmi.info.win.window;
-    std::cout << "Window handle: " << std::hex << pd.nwh << std::dec << std::endl;
-
-    if (!pd.nwh)
-    {
-        throw std::runtime_error("Invalid window handle");
-    }
-
-#elif defined(__APPLE__)
-    SDL_SysWMinfo wmi;
-    SDL_VERSION(&wmi.version);
-    if (!SDL_GetWindowWMInfo(window, &wmi))
-    {
-        throw std::runtime_error("Failed to get window info: " + std::string(SDL_GetError()));
-    }
-    pd.nwh = wmi.info.cocoa.window;
-#else
-    SDL_SysWMinfo wmi;
-    SDL_VERSION(&wmi.version);
-    if (!SDL_GetWindowWMInfo(window, &wmi))
-    {
-        throw std::runtime_error("Failed to get window info: " + std::string(SDL_GetError()));
-    }
-    pd.ndt = wmi.info.x11.display;
-    pd.nwh = (void*)(uintptr_t)wmi.info.x11.window;
-#endif
-
-    std::cout << "Calling bgfx::setPlatformData..." << std::endl;
-    bgfx::setPlatformData(pd);
-    std::cout << "Platform data set successfully" << std::endl;
 }
 
 void BgfxRenderer::initializeShaders()
@@ -194,15 +125,6 @@ void BgfxRenderer::initializeShaders()
     }
 
     std::cout << "Creating uniforms..." << std::endl;
-    // Create uniforms
-    uniformModel = bgfx::createUniform("u_model", bgfx::UniformType::Mat4);
-    uniformView = bgfx::createUniform("u_view", bgfx::UniformType::Mat4);
-    uniformProj = bgfx::createUniform("u_proj", bgfx::UniformType::Mat4);
-
-    if (!bgfx::isValid(uniformModel) || !bgfx::isValid(uniformView) || !bgfx::isValid(uniformProj))
-    {
-        throw std::runtime_error("Failed to create uniforms!");
-    }
 
     std::cout << "Shaders loaded successfully!" << std::endl;
 }
@@ -267,15 +189,18 @@ bool BgfxRenderer::beginFrame()
     bgfx::touch(0);
 
     // Set uniforms for all chunks
-    bgfx::setUniform(uniformModel, &modelMatrix);
-    bgfx::setUniform(uniformView, &viewMatrix);
-    bgfx::setUniform(uniformProj, &projMatrix);
 
     // Render all chunks
     for (Chunk* chunk : chunksToRender)
     {
-        if (chunk && chunk->hasRenderableData())
+        
+
+        if (chunk)
         {
+            float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f};
+            bgfx::UniformHandle u_chunkPos = bgfx::createUniform("u_chunkPos", bgfx::UniformType::Vec4);
+            bgfx::setUniform(u_chunkPos, chunkPos);
+
             chunk->draw(this);
         }
     }
@@ -298,9 +223,7 @@ void BgfxRenderer::renderChunks(const std::vector<Chunk*>& chunks)
 
 void BgfxRenderer::updateUniforms(const UniformBufferObject& ubo)
 {
-    modelMatrix = ubo.model;
-    viewMatrix = ubo.view;
-    projMatrix = ubo.proj;
+	bgfx::setViewTransform(0, &ubo.view, &ubo.proj);
 
     // Uniforms will be set in beginFrame() before rendering
 }
@@ -344,9 +267,6 @@ void BgfxRenderer::cleanup()
     std::cout << "Cleaning up bgfx renderer..." << std::endl;
 
     // Cleanup uniforms
-    if (bgfx::isValid(uniformModel)) bgfx::destroy(uniformModel);
-    if (bgfx::isValid(uniformView)) bgfx::destroy(uniformView);
-    if (bgfx::isValid(uniformProj)) bgfx::destroy(uniformProj);
 
     // Cleanup shader program
     if (bgfx::isValid(shaderProgram)) bgfx::destroy(shaderProgram);

@@ -42,7 +42,7 @@ void VoxelWorld::initWindow()
         SDL_WINDOWPOS_CENTERED,
         currentWindowWidth,
         currentWindowHeight,
-        SDL_WINDOW_RESIZABLE
+        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN
     );
 
     if (!window)

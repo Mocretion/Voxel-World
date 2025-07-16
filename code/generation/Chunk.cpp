@@ -577,7 +577,8 @@ void Chunk::uploadToBgfx(BgfxRenderer* renderer)
     gpuResourcesDirty = false;
 
     std::cout << "[BGFX] Uploaded chunk (" << chunkX << "," << chunkY << "," << chunkZ
-        << ") with " << vertices.size() << " vertices" << std::endl;
+        << ") with " << vertices.size() << " vertices. VBufferValid: " << bgfx::isValid(vertexBuffer) <<
+        ". IBufferValid: " << bgfx::isValid(indexBuffer) << std::endl;
 }
 
 void Chunk::cleanupBgfxResources()
@@ -621,7 +622,7 @@ void Chunk::draw(BgfxRenderer* renderer)
         | BGFX_STATE_WRITE_A
         | BGFX_STATE_WRITE_Z
         | BGFX_STATE_DEPTH_TEST_LESS
-        | BGFX_STATE_CULL_CCW;
+        | BGFX_STATE_CULL_CW;
 
     bgfx::setState(state);
 

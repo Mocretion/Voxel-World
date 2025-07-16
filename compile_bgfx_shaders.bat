@@ -24,4 +24,4 @@ if %errorlevel% neq 0 (
 )
 
 echo bgfx shaders compiled successfully!
-pause
+::pause

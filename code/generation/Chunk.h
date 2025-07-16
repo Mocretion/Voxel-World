@@ -12,6 +12,7 @@
 #include <chrono>
 #include <atomic>
 #include <bgfx/bgfx.h>
+#include <iostream>
 
 class VulkanRenderer;
 class ChunkManager;
@@ -99,6 +100,12 @@ public:
     bool isUploadedToGPU() const { return uploadedToGPU; }
     bool hasRenderableData() const
     {
+        /*std::cout << "[Chunk] Checking renderable data for chunk at ("
+			<< chunkX << ", " << chunkY << ", " << chunkZ << ") Mesh Generated: " <<
+            meshGenerated << "| indices empty: " << indices.empty() << "| vBufferValid: " << bgfx::isValid(vertexBuffer) <<
+            "| iBufferValid: " << bgfx::isValid(indexBuffer) << std::endl;
+        */
+
         return meshGenerated && !indices.empty() &&
             bgfx::isValid(vertexBuffer) && bgfx::isValid(indexBuffer);
     }

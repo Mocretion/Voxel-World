@@ -16,7 +16,7 @@ add_subdirectory(external/FastNoise2)
 find_package(OpenMP REQUIRED)
 
 # Find Vulkan
-find_package(Vulkan REQUIRED)
+# find_package(Vulkan REQUIRED)
 
 # Find SDL2 (vcpkg style)
 find_package(SDL2 CONFIG REQUIRED)
@@ -48,7 +48,6 @@ target_include_directories(${PROJECT_NAME}
     "external/bimg/include"
     ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering
     ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering/shader
-    ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering/vulkan
     ${CMAKE_CURRENT_SOURCE_DIR}/code/rendering/bgfx
     ${CMAKE_CURRENT_SOURCE_DIR}/code/user
     ${CMAKE_CURRENT_SOURCE_DIR}/code/noise
