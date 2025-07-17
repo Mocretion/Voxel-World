@@ -554,15 +554,22 @@ void Chunk::addQuadToMesh(const Quad& quad)
 
 void Chunk::uploadToBgfx(BgfxRenderer* renderer)
 {
+    std::cout << "A" << std::endl;
+
     if (!meshGenerated || vertices.empty() || indices.empty())
     {
         return;
     }
 
+    std::cout << "B" << std::endl;
+
     if (uploadedToGPU && !gpuResourcesDirty)
     {
+        
         return;
     }
+
+    std::cout << "C" << std::endl;
 
     // Clean up old buffers
     cleanupBgfxResources();
@@ -601,9 +608,9 @@ void Chunk::cleanupBgfxResources()
 
 void Chunk::draw(BgfxRenderer* renderer)
 {
+    // Upload to GPU if needed
     if (!hasRenderableData())
     {
-        // Upload to GPU if needed
         uploadToBgfx(renderer);
 
         // Check again after upload
@@ -616,15 +623,6 @@ void Chunk::draw(BgfxRenderer* renderer)
     // Set vertex and index buffers
     bgfx::setVertexBuffer(0, vertexBuffer);
     bgfx::setIndexBuffer(indexBuffer);
-
-    // Set render state
-    uint64_t state = BGFX_STATE_WRITE_RGB
-        | BGFX_STATE_WRITE_A
-        | BGFX_STATE_WRITE_Z
-        | BGFX_STATE_DEPTH_TEST_LESS
-        | BGFX_STATE_CULL_CW;
-
-    bgfx::setState(state);
 
     // Submit draw call
     bgfx::submit(0, renderer->getShaderProgram());

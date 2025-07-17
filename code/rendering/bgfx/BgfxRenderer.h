@@ -55,11 +55,13 @@ private:
     uint32_t windowWidth;
     uint32_t windowHeight;
 
+
     // bgfx handles
     bgfx::ProgramHandle shaderProgram = BGFX_INVALID_HANDLE;
 
     // Store chunks for rendering
     std::vector<Chunk*> chunksToRender;
+    bgfx::UniformHandle u_chunkPos = BGFX_INVALID_HANDLE;
 
     // Render state
     bool wireframeMode = false;
@@ -67,6 +69,10 @@ private:
 
     // Helper methods
     void initializeShaders();
+
+    void createUniforms();
+
+    void destroyUniforms();
 
     // Shader loading
     bgfx::ShaderHandle loadShader(const char* name);

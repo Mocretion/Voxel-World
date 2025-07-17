@@ -102,7 +102,9 @@ void VoxelWorld::mainLoop()
         }
 
         // Update world based on camera position (infinite terrain)
+
         worldRenderer->updateWorld(*camera);
+        
 
         // Begin rendering
         if (renderer->beginFrame())
