@@ -56,7 +56,7 @@ target_include_directories(${PROJECT_NAME}
 )
 
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /FS /openmp /arch:AVX2 /O2)
+    target_compile_options(${PROJECT_NAME} PRIVATE /FS /openmp /arch:AVX2 /O2 /Zc:__cplusplus /Zc:preprocessor)
 else()
     # Keep the existing OpenMP settings for other compilers
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -67,6 +67,8 @@ else()
         target_link_libraries(${PROJECT_NAME} -fopenmp)
     endif()
 endif()
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE BX_CONFIG_DEBUG=1)
 
 # Link libraries (vcpkg style)
 target_link_libraries(${PROJECT_NAME} 

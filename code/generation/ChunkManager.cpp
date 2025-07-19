@@ -387,8 +387,8 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
-    std::cout << "[FAST " << threadId << "] Processed " << batch.coordTuples.size() << " chunks in "
-		<< duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
+    //std::cout << "[FAST " << threadId << "] Processed " << batch.coordTuples.size() << " chunks in "
+	//	<< duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
 }
 
 // ============================================================================
@@ -500,8 +500,8 @@ void ChunkManager::processMeshBatch(ThreadWorkBatch& batch, int threadId)
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
-    std::cout << "[FAST " << threadId << "] Meshed " << batch.coordTuples.size() << " chunks in "
-        << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
+    //std::cout << "[FAST " << threadId << "] Meshed " << batch.coordTuples.size() << " chunks in "
+    //    << duration.count() << "ms using " << std::this_thread::get_id() << std::endl;
 }
 
 void ChunkManager::markChunksAsDisplayed(const std::vector<Chunk*>& chunks)

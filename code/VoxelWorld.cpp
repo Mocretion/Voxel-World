@@ -116,6 +116,13 @@ void VoxelWorld::mainLoop()
 
             // End rendering
             renderer->endFrame();
+
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - lastFrameTime);
+
+            //std::cout << "frame endered in " << duration.count() << "ms, "
+            //    << std::endl;
+     
         }
 
         // Update window title with debug info

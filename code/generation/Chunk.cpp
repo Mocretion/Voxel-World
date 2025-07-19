@@ -63,7 +63,7 @@ void Chunk::generate3DTerrain()
 
     noiseHeightGen->GenUniformGrid2D(surfaceHeight, chunkStartX, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, 0.01, 12345);
     caveNoiseGen->GenUniformGrid3D(caveMap.data(), chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.1, 23456);
-    skyNoiseGen->GenUniformGrid3D(skyMap.data(), chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.08, 34567);
+    //skyNoiseGen->GenUniformGrid3D(skyMap.data(), chunkStartX, chunkStartY, chunkStartZ, CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE, 0.08, 34567);
 
     int heightIndex = 0;
     int caveIndex = 0;
@@ -554,22 +554,16 @@ void Chunk::addQuadToMesh(const Quad& quad)
 
 void Chunk::uploadToBgfx(BgfxRenderer* renderer)
 {
-    std::cout << "A" << std::endl;
-
     if (!meshGenerated || vertices.empty() || indices.empty())
     {
         return;
     }
-
-    std::cout << "B" << std::endl;
 
     if (uploadedToGPU && !gpuResourcesDirty)
     {
         
         return;
     }
-
-    std::cout << "C" << std::endl;
 
     // Clean up old buffers
     cleanupBgfxResources();
@@ -582,10 +576,6 @@ void Chunk::uploadToBgfx(BgfxRenderer* renderer)
 
     uploadedToGPU = true;
     gpuResourcesDirty = false;
-
-    std::cout << "[BGFX] Uploaded chunk (" << chunkX << "," << chunkY << "," << chunkZ
-        << ") with " << vertices.size() << " vertices. VBufferValid: " << bgfx::isValid(vertexBuffer) <<
-        ". IBufferValid: " << bgfx::isValid(indexBuffer) << std::endl;
 }
 
 void Chunk::cleanupBgfxResources()
@@ -606,10 +596,10 @@ void Chunk::cleanupBgfxResources()
     gpuResourcesDirty = true;
 }
 
-void Chunk::draw(BgfxRenderer* renderer)
+void Chunk::draw(BgfxRenderer* renderer, bgfx::Encoder* encoder, bgfx::OcclusionQueryHandle& gpuTimerQuery, bool useQuery)
 {
     // Upload to GPU if needed
-    if (!hasRenderableData())
+    /*if (!hasRenderableData())
     {
         uploadToBgfx(renderer);
 
@@ -618,12 +608,20 @@ void Chunk::draw(BgfxRenderer* renderer)
         {
             return;
         }
-    }
+    }*/
 
     // Set vertex and index buffers
-    bgfx::setVertexBuffer(0, vertexBuffer);
-    bgfx::setIndexBuffer(indexBuffer);
+    encoder->setVertexBuffer(0, vertexBuffer);
+    encoder->setIndexBuffer(indexBuffer);
+
+    //encoder->setState(BGFX_STATE_DEFAULT);
 
     // Submit draw call
-    bgfx::submit(0, renderer->getShaderProgram());
+    if (useQuery)
+    {
+         //encoder->submit(0, renderer->getShaderProgram(), gpuTimerQuery);
+    }else
+        {
+        encoder->submit(0, renderer->getShaderProgram());
+	}
 }

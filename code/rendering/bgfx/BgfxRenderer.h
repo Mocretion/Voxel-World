@@ -2,6 +2,8 @@
 
 #include <SDL2/SDL.h>
 #include <bgfx/bgfx.h>
+#include <bx/thread.h>
+#include <bx/uint32_t.h>
 #include <bgfx/platform.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -22,6 +24,12 @@ public:
     // Initialize bgfx with the given window
     void initialize(SDL_Window* window, uint32_t windowWidth, uint32_t windowHeight);
     void cleanup();
+
+    static int32_t threadFunc(bx::Thread* _thread, void* _userData)
+    {
+        BgfxRenderer* self = static_cast<BgfxRenderer*>(_userData);
+        return self->renderThread(_thread);
+    }
 
     // Frame rendering
     bool beginFrame();
@@ -48,6 +56,9 @@ public:
 
     // Get shader program for chunks to use
     bgfx::ProgramHandle getShaderProgram() const { return shaderProgram; }
+    int32_t renderThread(bx::Thread* _thread);
+
+    void submitChunk(uint32_t _tid, uint32_t _xstart, uint32_t _num);
 
 private:
     // Window settings
@@ -55,6 +66,10 @@ private:
     uint32_t windowWidth;
     uint32_t windowHeight;
 
+	bx::Thread renderThreads[5];  // Thread pool for bgfx submissions
+    bx::Semaphore sync;
+    int32_t maxThreads;
+    int32_t  numThreads;
 
     // bgfx handles
     bgfx::ProgramHandle shaderProgram = BGFX_INVALID_HANDLE;
@@ -77,4 +92,8 @@ private:
     // Shader loading
     bgfx::ShaderHandle loadShader(const char* name);
     const bgfx::Memory* loadMemory(const char* filename);
+
+
+    bgfx::OcclusionQueryHandle gpuTimerQuery;
+    bool sent = false; 
 };

@@ -34,10 +34,9 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
     init.resolution.width = windowWidth;
     init.resolution.height = windowHeight;
     //init.resolution.reset = BGFX_RESET_VSYNC;
-    init.limits.maxEncoders = 1;  // Single-threaded
     init.callback = nullptr;  // Or add custom callback
     init.allocator = nullptr;  // Use default
-    init.debug = BGFX_DEBUG_TEXT; // Default debug level
+    //init.debug = BGFX_DEBUG_STATS; // Default debug level
 
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
@@ -98,6 +97,19 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
         std::cerr << "Shader initialization failed: " << e.what() << std::endl;
         throw;
     }
+
+    const bgfx::Caps* caps = bgfx::getCaps();
+    maxThreads = bx::min<int32_t>(caps->limits.maxEncoders, BX_COUNTOF(renderThreads));
+    numThreads = (maxThreads + 1) / 2;
+
+    for (int32_t ii = 0; ii < maxThreads; ++ii)
+    {
+        renderThreads[ii].init(threadFunc, this);
+    }
+
+    bgfx::setDebug(BGFX_DEBUG_TEXT | BGFX_DEBUG_STATS);
+
+    gpuTimerQuery = bgfx::createOcclusionQuery();
 
     std::cout << "bgfx renderer initialized successfully!" << std::endl;
 }
@@ -212,22 +224,118 @@ const bgfx::Memory* BgfxRenderer::loadMemory(const char* filename)
     return mem;
 }
 
+int32_t BgfxRenderer::renderThread(bx::Thread* _thread)
+{
+    for (;;)
+    {
+        union
+        {
+            void* ptr;
+            uintptr_t id;
+
+        } cast;
+
+        cast.ptr = _thread->pop();  // Wait for work signal in beginFrame()
+        if (UINTPTR_MAX == cast.id)  // Work signal was the shutdown signal
+        {
+            break;
+        }
+
+
+        const uint32_t numThreads = uint32_t(cast.id);
+        const uint32_t idx = uint32_t(_thread - renderThreads);
+        //std::cout << "[BGFX] Thread " << idx << " recieved a work signal" << std::endl;
+
+        const uint32_t num = chunksToRender.size() / numThreads;
+        const uint32_t rem = idx == numThreads - 1 ? uint32_t(chunksToRender.size()) % numThreads : 0;
+        const uint32_t xx = idx * num;
+
+        //std::cout << "[BGFX] Thread " << idx << " processing chunks from " << xx
+		//	<< " to " << (xx + num + rem) <<". Total chunks: " << chunksToRender.size() << std::endl;
+
+        submitChunk(idx + 1, xx, num + rem);
+    }
+
+    return bx::kExitSuccess;
+}
+
+void BgfxRenderer::submitChunk(uint32_t _tid, uint32_t _xstart, uint32_t _num)
+{
+    bgfx::Encoder* encoder = bgfx::begin();
+    
+    if (0 != _tid)
+    {
+        sync.post();
+    }
+
+    if (NULL != encoder)
+    {
+
+        for (uint32_t xx = _xstart, xend = _xstart + _num; xx < xend; ++xx)
+        {
+            //std::cout << xx << std::endl;
+
+			Chunk* chunk = chunksToRender[xx];
+            if (chunk)
+            {
+                float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
+                bgfx::setUniform(u_chunkPos, chunkPos);
+                /*if (!sent)
+                {
+                    chunk->draw(this, encoder, gpuTimerQuery, true);
+                    sent = true;
+                }
+                else
+                {*/
+                    chunk->draw(this, encoder, gpuTimerQuery, false);
+
+                    int32_t gpuTimeNs = 0;
+                    if (bgfx::getResult(gpuTimerQuery, &gpuTimeNs))
+                    {
+                        float gpuTimeMs = float(gpuTimeNs) / 1e6f;
+                        //printf("GPU draw time: %.3f ms\n", gpuTimeMs);
+                        sent = false;
+                    }
+                //}
+            }
+
+            
+        }
+        
+        bgfx::end(encoder);
+    }
+}
+
+
 bool BgfxRenderer::beginFrame()
 {
+	bgfx::touch(0);
 
     if (chunksToRender.empty())
         return true;
 
-
     for (Chunk* chunk : chunksToRender)
     {
-        if (chunk)
-        {
-            float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
-            bgfx::setUniform(u_chunkPos, chunkPos);
+        chunk->uploadToBgfx(this);
+	}
 
-            chunk->draw(this);
+    if (false)//1 < numThreads && chunksToRender.size() > 26)
+    {
+        for (uint32_t ii = 0; ii < numThreads; ++ii)
+        {
+            //std::cout << "[BGFX] sending thread " << ii << " a work signal" << std::endl;
+            renderThreads[ii].push(reinterpret_cast<void*>(uintptr_t(numThreads)));
         }
+
+        for (uint32_t ii = 0; ii < numThreads; ++ii)
+        {
+            sync.wait();
+        }
+    }
+    else
+    {
+        //std::cout << "[BGFX] Using no threads for rendering" << std::endl;
+        submitChunk(0, 0, uint32_t(chunksToRender.size()));
     }
 
     return true;
