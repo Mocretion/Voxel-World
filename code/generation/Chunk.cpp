@@ -596,7 +596,7 @@ void Chunk::cleanupBgfxResources()
     gpuResourcesDirty = true;
 }
 
-void Chunk::draw(BgfxRenderer* renderer, bgfx::Encoder* encoder, bgfx::OcclusionQueryHandle& gpuTimerQuery, bool useQuery)
+void Chunk::draw(BgfxRenderer* renderer)
 {
     // Upload to GPU if needed
     /*if (!hasRenderableData())
@@ -611,17 +611,11 @@ void Chunk::draw(BgfxRenderer* renderer, bgfx::Encoder* encoder, bgfx::Occlusion
     }*/
 
     // Set vertex and index buffers
-    encoder->setVertexBuffer(0, vertexBuffer);
-    encoder->setIndexBuffer(indexBuffer);
+    bgfx::setVertexBuffer(0, vertexBuffer);
+    bgfx::setIndexBuffer(indexBuffer);
 
     //encoder->setState(BGFX_STATE_DEFAULT);
 
     // Submit draw call
-    if (useQuery)
-    {
-         //encoder->submit(0, renderer->getShaderProgram(), gpuTimerQuery);
-    }else
-        {
-        encoder->submit(0, renderer->getShaderProgram());
-	}
+    bgfx::submit(0, renderer->getShaderProgram());
 }

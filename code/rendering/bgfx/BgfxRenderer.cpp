@@ -7,7 +7,7 @@
 #include <SDL2/SDL_syswm.h>
 #endif
 
-BgfxRenderer::BgfxRenderer()
+BgfxRenderer::BgfxRenderer() : chunkVertexBuffer(BGFX_INVALID_HANDLE), chunkIndexBuffer(BGFX_INVALID_HANDLE)
 {
     // Constructor - main initialization happens in initialize()
 }
@@ -99,13 +99,6 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
     }
 
     const bgfx::Caps* caps = bgfx::getCaps();
-    maxThreads = bx::min<int32_t>(caps->limits.maxEncoders, BX_COUNTOF(renderThreads));
-    numThreads = (maxThreads + 1) / 2;
-
-    for (int32_t ii = 0; ii < maxThreads; ++ii)
-    {
-        renderThreads[ii].init(threadFunc, this);
-    }
 
     bgfx::setDebug(BGFX_DEBUG_TEXT | BGFX_DEBUG_STATS);
 
@@ -119,21 +112,11 @@ void BgfxRenderer::initializeShaders()
     std::cout << "Loading shaders..." << std::endl;
 
     // Load vertex and fragment shaders
-    std::cout << "Loading vertex shader..." << std::endl;
-    bgfx::ShaderHandle vsh = loadShader("vs_basic");
+    bgfx::ShaderHandle vsh;
+    loadShaderByName("vs_basic", vsh);
 
-    std::cout << "Loading fragment shader..." << std::endl;
-    bgfx::ShaderHandle fsh = loadShader("fs_basic");
-
-    if (!bgfx::isValid(vsh))
-    {
-        throw std::runtime_error("Failed to load vertex shader!");
-    }
-
-    if (!bgfx::isValid(fsh))
-    {
-        throw std::runtime_error("Failed to load fragment shader!");
-    }
+    bgfx::ShaderHandle fsh;
+    loadShaderByName("fs_basic", fsh);
 
     // Create shader program
     std::cout << "Creating shader program..." << std::endl;
@@ -147,6 +130,17 @@ void BgfxRenderer::initializeShaders()
     std::cout << "Creating uniforms..." << std::endl;
 
     std::cout << "Shaders loaded successfully!" << std::endl;
+}
+
+void BgfxRenderer::loadShaderByName(const char* name, bgfx::ShaderHandle& shaderHandle)
+{
+    std::cout << "Loading '" << name << "' shader..." << std::endl;
+    shaderHandle = loadShader(name);
+
+    if (!bgfx::isValid(shaderHandle))
+    {
+        throw std::runtime_error(std::string("Failed to load '") + name + "' shader!");
+    }
 }
 
 void BgfxRenderer::createUniforms()
@@ -224,89 +218,6 @@ const bgfx::Memory* BgfxRenderer::loadMemory(const char* filename)
     return mem;
 }
 
-int32_t BgfxRenderer::renderThread(bx::Thread* _thread)
-{
-    for (;;)
-    {
-        union
-        {
-            void* ptr;
-            uintptr_t id;
-
-        } cast;
-
-        cast.ptr = _thread->pop();  // Wait for work signal in beginFrame()
-        if (UINTPTR_MAX == cast.id)  // Work signal was the shutdown signal
-        {
-            break;
-        }
-
-
-        const uint32_t numThreads = uint32_t(cast.id);
-        const uint32_t idx = uint32_t(_thread - renderThreads);
-        //std::cout << "[BGFX] Thread " << idx << " recieved a work signal" << std::endl;
-
-        const uint32_t num = chunksToRender.size() / numThreads;
-        const uint32_t rem = idx == numThreads - 1 ? uint32_t(chunksToRender.size()) % numThreads : 0;
-        const uint32_t xx = idx * num;
-
-        //std::cout << "[BGFX] Thread " << idx << " processing chunks from " << xx
-		//	<< " to " << (xx + num + rem) <<". Total chunks: " << chunksToRender.size() << std::endl;
-
-        submitChunk(idx + 1, xx, num + rem);
-    }
-
-    return bx::kExitSuccess;
-}
-
-void BgfxRenderer::submitChunk(uint32_t _tid, uint32_t _xstart, uint32_t _num)
-{
-    bgfx::Encoder* encoder = bgfx::begin();
-    
-    if (0 != _tid)
-    {
-        sync.post();
-    }
-
-    if (NULL != encoder)
-    {
-
-        for (uint32_t xx = _xstart, xend = _xstart + _num; xx < xend; ++xx)
-        {
-            //std::cout << xx << std::endl;
-
-			Chunk* chunk = chunksToRender[xx];
-            if (chunk)
-            {
-                float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
-                bgfx::setUniform(u_chunkPos, chunkPos);
-                /*if (!sent)
-                {
-                    chunk->draw(this, encoder, gpuTimerQuery, true);
-                    sent = true;
-                }
-                else
-                {*/
-                    chunk->draw(this, encoder, gpuTimerQuery, false);
-
-                    int32_t gpuTimeNs = 0;
-                    if (bgfx::getResult(gpuTimerQuery, &gpuTimeNs))
-                    {
-                        float gpuTimeMs = float(gpuTimeNs) / 1e6f;
-                        //printf("GPU draw time: %.3f ms\n", gpuTimeMs);
-                        sent = false;
-                    }
-                //}
-            }
-
-            
-        }
-        
-        bgfx::end(encoder);
-    }
-}
-
-
 bool BgfxRenderer::beginFrame()
 {
 	bgfx::touch(0);
@@ -317,25 +228,10 @@ bool BgfxRenderer::beginFrame()
     for (Chunk* chunk : chunksToRender)
     {
         chunk->uploadToBgfx(this);
-	}
 
-    if (false)//1 < numThreads && chunksToRender.size() > 26)
-    {
-        for (uint32_t ii = 0; ii < numThreads; ++ii)
-        {
-            //std::cout << "[BGFX] sending thread " << ii << " a work signal" << std::endl;
-            renderThreads[ii].push(reinterpret_cast<void*>(uintptr_t(numThreads)));
-        }
-
-        for (uint32_t ii = 0; ii < numThreads; ++ii)
-        {
-            sync.wait();
-        }
-    }
-    else
-    {
-        //std::cout << "[BGFX] Using no threads for rendering" << std::endl;
-        submitChunk(0, 0, uint32_t(chunksToRender.size()));
+        float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
+        bgfx::setUniform(u_chunkPos, chunkPos);
+        chunk->draw(this);
     }
 
     return true;
@@ -402,6 +298,8 @@ void BgfxRenderer::cleanup()
     // Cleanup uniforms
     destroyUniforms();
 
+    cleanupBuffers();
+
     // Cleanup shader program
     if (bgfx::isValid(shaderProgram)) bgfx::destroy(shaderProgram);
 
@@ -409,4 +307,19 @@ void BgfxRenderer::cleanup()
     bgfx::shutdown();
 
     std::cout << "bgfx cleanup completed" << std::endl;
+}
+
+void BgfxRenderer::cleanupBuffers()
+{
+    if (bgfx::isValid(chunkVertexBuffer))
+    {
+        bgfx::destroy(chunkVertexBuffer);
+        chunkVertexBuffer = BGFX_INVALID_HANDLE;
+    }
+
+    if (bgfx::isValid(chunkIndexBuffer))
+    {
+        bgfx::destroy(chunkIndexBuffer);
+        chunkIndexBuffer = BGFX_INVALID_HANDLE;
+    }
 }

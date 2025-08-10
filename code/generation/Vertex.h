@@ -42,3 +42,10 @@ struct Vertex {
         return layout;
     }
 };
+
+struct ChunkInstanceData {
+    int x;
+    int y;
+    int z;
+    int pad;
+};

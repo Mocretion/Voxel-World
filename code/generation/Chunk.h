@@ -72,7 +72,7 @@ public:
     void clearMesh();
 
     void uploadToBgfx(class BgfxRenderer* renderer);
-    void draw(class BgfxRenderer* renderer, bgfx::Encoder* encoder, bgfx::OcclusionQueryHandle& gpuTimerQuery, bool useQuery);
+    void draw(class BgfxRenderer* renderer);
     void cleanupBgfxResources();
 
     // Get the generated vertices and indices

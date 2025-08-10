@@ -66,12 +66,12 @@ public:
     mutable std::shared_mutex chunkMutex;
 
 private:
-    // SIMPLIFIED: Memory pool for better cache locality (no TLS complexity)
+    // Memory pool for better cache locality (no TLS complexity)
     struct ChunkPool {
-        std::vector<std::unique_ptr<Chunk>> chunks;  // Use unique_ptr for stable addresses
-        std::vector<bool> allocated;                 // Track which slots are used
+        std::vector<std::unique_ptr<Chunk>> chunks; // Use unique_ptr for stable addresses
+        std::vector<bool> allocated;                // Track which slots are used
         std::vector<size_t> freeSlots;              // Available slots for reuse
-        std::atomic<size_t> nextSlot{ 0 };            // Thread-safe slot allocation
+        std::atomic<size_t> nextSlot{ 0 };          // Thread-safe slot allocation
         mutable std::mutex poolMutex;               // Protect pool operations
 
         size_t allocateChunk(int chunkX, int chunkY, int chunkZ);

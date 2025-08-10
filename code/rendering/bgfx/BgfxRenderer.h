@@ -25,12 +25,6 @@ public:
     void initialize(SDL_Window* window, uint32_t windowWidth, uint32_t windowHeight);
     void cleanup();
 
-    static int32_t threadFunc(bx::Thread* _thread, void* _userData)
-    {
-        BgfxRenderer* self = static_cast<BgfxRenderer*>(_userData);
-        return self->renderThread(_thread);
-    }
-
     // Frame rendering
     bool beginFrame();
     void endFrame();
@@ -56,9 +50,6 @@ public:
 
     // Get shader program for chunks to use
     bgfx::ProgramHandle getShaderProgram() const { return shaderProgram; }
-    int32_t renderThread(bx::Thread* _thread);
-
-    void submitChunk(uint32_t _tid, uint32_t _xstart, uint32_t _num);
 
 private:
     // Window settings
@@ -66,10 +57,8 @@ private:
     uint32_t windowWidth;
     uint32_t windowHeight;
 
-	bx::Thread renderThreads[5];  // Thread pool for bgfx submissions
-    bx::Semaphore sync;
-    int32_t maxThreads;
-    int32_t  numThreads;
+    bgfx::VertexBufferHandle chunkVertexBuffer = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle chunkIndexBuffer = BGFX_INVALID_HANDLE;
 
     // bgfx handles
     bgfx::ProgramHandle shaderProgram = BGFX_INVALID_HANDLE;
@@ -85,9 +74,12 @@ private:
     // Helper methods
     void initializeShaders();
 
+    void loadShaderByName(const char* name, bgfx::ShaderHandle& shaderHandle);
+
     void createUniforms();
 
     void destroyUniforms();
+    void cleanupBuffers();
 
     // Shader loading
     bgfx::ShaderHandle loadShader(const char* name);
