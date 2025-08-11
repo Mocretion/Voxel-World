@@ -225,46 +225,15 @@ bool BgfxRenderer::beginFrame()
     if (chunksToRender.empty())
         return true;
 
-    if (previousChunkCount < chunksToRender.size())
-    {
-
-        std::vector<Vertex> allVertices;
-        std::vector<uint32_t> allIndices;
-        uint32_t indexOffset = 0;
-
         for (Chunk* chunk : chunksToRender)
         {
-            const auto& vertices = chunk->getVertices();
-            const auto& indices = chunk->getIndices();
 
-            indexOffset = allVertices.size();
-
-            allVertices.insert(allVertices.end(), vertices.begin(), vertices.end());
-
-            for (uint32_t idx : indices)
-            {
-                allIndices.push_back(idx + indexOffset);
-            }
-
-            /*chunk->uploadToBgfx(this);
+            chunk->uploadToBgfx(this);
 
             float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
             bgfx::setUniform(u_chunkPos, chunkPos);
-            chunk->draw(this);*/
+            chunk->draw(this);
         }
-
-        bgfx::update(chunkVertexBuffer, 0,
-            bgfx::makeRef(allVertices.data(), allVertices.size() * sizeof(Vertex)));
-
-        bgfx::update(chunkIndexBuffer, 0,
-            bgfx::makeRef(allIndices.data(), allIndices.size() * sizeof(uint32_t)));
-    }
-
-    float chunkPos[4] = { 0.0, 0.0, 0.0, 0.0f };
-    bgfx::setUniform(u_chunkPos, chunkPos);
-
-    bgfx::setVertexBuffer(0, chunkVertexBuffer);
-    bgfx::setIndexBuffer(chunkIndexBuffer);
 
     return true;
 }
