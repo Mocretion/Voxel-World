@@ -57,8 +57,8 @@ private:
     uint32_t windowWidth;
     uint32_t windowHeight;
 
-    bgfx::VertexBufferHandle chunkVertexBuffer = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle chunkIndexBuffer = BGFX_INVALID_HANDLE;
+    bgfx::DynamicVertexBufferHandle chunkVertexBuffer = BGFX_INVALID_HANDLE;
+    bgfx::DynamicIndexBufferHandle chunkIndexBuffer = BGFX_INVALID_HANDLE;
 
     // bgfx handles
     bgfx::ProgramHandle shaderProgram = BGFX_INVALID_HANDLE;
@@ -84,8 +84,4 @@ private:
     // Shader loading
     bgfx::ShaderHandle loadShader(const char* name);
     const bgfx::Memory* loadMemory(const char* filename);
-
-
-    bgfx::OcclusionQueryHandle gpuTimerQuery;
-    bool sent = false; 
 };
