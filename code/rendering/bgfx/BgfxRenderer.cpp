@@ -7,7 +7,7 @@
 #include <SDL2/SDL_syswm.h>
 #endif
 
-BgfxRenderer::BgfxRenderer() : chunkVertexBuffer(BGFX_INVALID_HANDLE), chunkIndexBuffer(BGFX_INVALID_HANDLE)
+BgfxRenderer::BgfxRenderer()
 {
     // Constructor - main initialization happens in initialize()
 }
@@ -19,11 +19,11 @@ BgfxRenderer::~BgfxRenderer()
 
 void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t windowHeight)
 {
+    std::cout << "Initializing bgfx renderer..." << std::endl;
     this->window = window;
     this->windowWidth = windowWidth;
     this->windowHeight = windowHeight;
 
-    std::cout << "Initializing bgfx renderer..." << std::endl;
     std::cout << "Window size: " << windowWidth << "x" << windowHeight << std::endl;
 
     bool initSuccess = false;
@@ -100,6 +100,18 @@ void BgfxRenderer::initialize(SDL_Window* window, uint32_t windowWidth, uint32_t
 
     const bgfx::Caps* caps = bgfx::getCaps();
 
+    std::cout << "Creating DynamicBufferPool..." << std::endl;
+    try
+    {
+        bufferPool = std::make_unique<DynamicBufferPool>();
+        std::cout << "DynamicBufferPool created successfully!" << std::endl;
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Failed to create DynamicBufferPool: " << e.what() << std::endl;
+        throw;
+    }
+
     bgfx::setDebug(BGFX_DEBUG_TEXT | BGFX_DEBUG_STATS);
 
     std::cout << "bgfx renderer initialized successfully!" << std::endl;
@@ -123,6 +135,17 @@ void BgfxRenderer::initializeShaders()
     if (!bgfx::isValid(shaderProgram))
     {
         throw std::runtime_error("Failed to create shader program!");
+    }
+
+    bgfx::ShaderHandle csh;
+    loadShaderByName("cs_indirect", csh);
+
+    std::cout << "Creating compute shader program..." << std::endl;
+    computeProgram = bgfx::createProgram(csh, true);
+
+    if (!bgfx::isValid(computeProgram))
+    {
+        throw std::runtime_error("Failed to create compute program!");
     }
 
     std::cout << "Creating uniforms..." << std::endl;
@@ -216,8 +239,6 @@ const bgfx::Memory* BgfxRenderer::loadMemory(const char* filename)
     return mem;
 }
 
-static int previousChunkCount;
-
 bool BgfxRenderer::beginFrame()
 {
 	bgfx::touch(0);
@@ -225,15 +246,122 @@ bool BgfxRenderer::beginFrame()
     if (chunksToRender.empty())
         return true;
 
-        for (Chunk* chunk : chunksToRender)
-        {
+    for (Chunk* chunk : chunksToRender)
+    {
+        chunk->uploadToBufferPool(bufferPool.get());
+    }
 
-            chunk->uploadToBgfx(this);
+    // Render all chunks using indirect drawing
+    bufferPool->renderAll(computeProgram, shaderProgram, u_chunkPos);
 
-            float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
-            bgfx::setUniform(u_chunkPos, chunkPos);
-            chunk->draw(this);
-        }
+    //if (previousChunkCount != chunksToRender.size())
+    //{
+    //    std::cout << "update buffers..." << std::endl;
+    //
+    //    previousChunkCount = chunksToRender.size();
+    //
+    //    allVertices.clear();
+    //    allIndices.clear();
+    //
+    //    size_t estimatedVertices = chunksToRender.size() * 4500;
+    //    size_t estimatedIndices = chunksToRender.size() * 6750;
+    //    allVertices.reserve(estimatedVertices);
+    //    allIndices.reserve(estimatedIndices);
+    //
+    //    int i = 0;
+    //    for (Chunk* chunk : chunksToRender)
+    //    {        
+    //        const auto& vertices = chunk->getVertices();
+    //        const auto& indices = chunk->getIndices();
+    //    
+    //        uint32_t indexOffset = static_cast<uint32_t>(allVertices.size());
+    //    
+    //        allVertices.insert(allVertices.end(), vertices.begin(), vertices.end());
+    //    
+    //        for (uint32_t idx : indices)
+    //        {
+    //            uint32_t newSize = idx + indexOffset;
+    //            allIndices.push_back(newSize);
+    //        }
+    //    
+    //
+    //        std::cout << allVertices.size() << " " << allIndices.size() << std::endl;
+    //
+    //        //if (i == 12) break;
+    //        
+    //        ++i;
+    //        /*chunk->uploadToBgfx(this);
+    //    
+    //        float chunkPos[4] = { chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ(), 0.0f };
+    //        bgfx::setUniform(u_chunkPos, chunkPos);
+    //        chunk->draw(this);*/
+    //    }
+    //
+    //    const size_t maxVertices = 200000;
+    //    const size_t maxIndices = 400000;
+    //
+    //    if (allVertices.size() > maxVertices)
+    //    {
+    //        std::cerr << "ERROR: Vertex count " << allVertices.size()
+    //            << " exceeds buffer limit " << maxVertices << std::endl;
+    //        return false;
+    //    }
+    //
+    //    if (allIndices.size() > maxIndices)
+    //    {
+    //        std::cerr << "ERROR: Index count " << allIndices.size()
+    //            << " exceeds buffer limit " << maxIndices << std::endl;
+    //        return false;
+    //    }
+    //
+    //    if (!bgfx::isValid(chunkVertexBuffer) || !bgfx::isValid(chunkIndexBuffer))
+    //    {
+    //        std::cout << "Buffers were invalid... recreating..." << std::endl;
+    //
+    //        // Clean up old buffers
+    //        if (bgfx::isValid(chunkVertexBuffer)) bgfx::destroy(chunkVertexBuffer);
+    //        if (bgfx::isValid(chunkIndexBuffer)) bgfx::destroy(chunkIndexBuffer);
+    //
+    //        // Create new buffers with adequate size
+    //        chunkVertexBuffer = bgfx::createDynamicVertexBuffer(
+    //            static_cast<uint32_t>(maxVertices), Vertex::getBgfxLayout());
+    //        chunkIndexBuffer = bgfx::createDynamicIndexBuffer(
+    //            static_cast<uint32_t>(maxIndices), BGFX_BUFFER_INDEX32);
+    //
+    //        if (!bgfx::isValid(chunkVertexBuffer) || !bgfx::isValid(chunkIndexBuffer))
+    //        {
+    //            std::cerr << "ERROR: Failed to create dynamic buffers!" << std::endl;
+    //            return false;
+    //        }
+    //    }
+    //
+    //    if (!allVertices.empty())
+    //    {
+    //        const bgfx::Memory* vertexMem = bgfx::makeRef(
+    //            allVertices.data(),
+    //            static_cast<uint32_t>(allVertices.size() * sizeof(Vertex))
+    //        );
+    //        bgfx::update(chunkVertexBuffer, 0, vertexMem);
+    //    }
+    //
+    //    if (!allIndices.empty())
+    //    {
+    //        const bgfx::Memory* indexMem = bgfx::makeRef(
+    //            allIndices.data(),
+    //            static_cast<uint32_t>(allIndices.size() * sizeof(uint32_t))
+    //        );
+    //        bgfx::update(chunkIndexBuffer, 0, indexMem);
+    //    }
+    //
+    //    float chunkPos[4] = { chunksToRender[0]->getChunkX(), chunksToRender[0]->getChunkY(), chunksToRender[0]->getChunkZ(), 0.0f };
+    //    bgfx::setUniform(u_chunkPos, chunkPos);
+    //}
+    //
+    //bgfx::setVertexBuffer(0, chunkVertexBuffer);
+    //bgfx::setIndexBuffer(chunkIndexBuffer);
+    //
+    //std::cout << "submit!!!!" << std::endl;
+    //bgfx::submit(0, getShaderProgram());
 
     return true;
 }
@@ -278,49 +406,40 @@ void BgfxRenderer::toggleWireframe()
     std::cout << "Wireframe mode " << (wireframeMode ? "enabled" : "disabled") << std::endl;
 }
 
-void BgfxRenderer::createVertexBuffer(const std::vector<Vertex>& vertices, bgfx::VertexBufferHandle& handle)
+void BgfxRenderer::performMaintenance()
 {
-    // Create vertex buffer
-    const bgfx::Memory* mem = bgfx::makeRef(vertices.data(), uint32_t(vertices.size() * sizeof(Vertex)));
-    handle = bgfx::createVertexBuffer(mem, Vertex::getBgfxLayout());
-}
+    static auto lastDefrag = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
 
-void BgfxRenderer::createIndexBuffer(const std::vector<uint32_t>& indices, bgfx::IndexBufferHandle& handle)
-{
-    // Create index buffer
-    const bgfx::Memory* mem = bgfx::makeRef(indices.data(), uint32_t(indices.size() * sizeof(uint32_t)));
-    handle = bgfx::createIndexBuffer(mem, BGFX_BUFFER_INDEX32);
+    // Defragment every 60 seconds if fragmentation is high
+    if (std::chrono::duration_cast<std::chrono::seconds>(now - lastDefrag).count() > 60)
+    {
+        float fragmentation = bufferPool->getAverageFragmentation();
+        if (fragmentation > 0.3f)
+        {
+            std::cout << "Performing buffer defragmentation (fragmentation: "
+                << fragmentation << ")" << std::endl;
+            bufferPool->defragmentBuffers(0.3f);
+        }
+        lastDefrag = now;
+    }
 }
 
 void BgfxRenderer::cleanup()
 {
     std::cout << "Cleaning up bgfx renderer..." << std::endl;
 
+    bufferPool.reset();
+
     // Cleanup uniforms
     destroyUniforms();
 
-    cleanupBuffers();
-
     // Cleanup shader program
     if (bgfx::isValid(shaderProgram)) bgfx::destroy(shaderProgram);
+    if (bgfx::isValid(computeProgram)) bgfx::destroy(computeProgram);
 
     // Shutdown bgfx
     bgfx::shutdown();
 
     std::cout << "bgfx cleanup completed" << std::endl;
-}
-
-void BgfxRenderer::cleanupBuffers()
-{
-    if (bgfx::isValid(chunkVertexBuffer))
-    {
-        bgfx::destroy(chunkVertexBuffer);
-        chunkVertexBuffer = BGFX_INVALID_HANDLE;
-    }
-
-    if (bgfx::isValid(chunkIndexBuffer))
-    {
-        bgfx::destroy(chunkIndexBuffer);
-        chunkIndexBuffer = BGFX_INVALID_HANDLE;
-    }
 }

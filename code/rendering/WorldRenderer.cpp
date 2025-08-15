@@ -199,7 +199,7 @@ void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
     // Note: bgfx cleanup will be handled in Chunk::cleanupBgfxResources()
     int chunksRemoved = chunkManager.removeDistantChunks(
         playerChunk.x, playerChunk.y, playerChunk.z,
-        removeDataDistance, removeMeshDistance
+        removeDataDistance, removeMeshDistance, *bgfxRenderer
     );
 
     if (chunksRemoved > 0)

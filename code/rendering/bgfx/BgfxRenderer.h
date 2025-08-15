@@ -12,6 +12,7 @@
 
 #include "Vertex.h"
 #include "Camera.h"
+#include "DynamicBufferPool.h"
 
 // Forward declarations
 class Chunk;
@@ -23,6 +24,7 @@ public:
 
     // Initialize bgfx with the given window
     void initialize(SDL_Window* window, uint32_t windowWidth, uint32_t windowHeight);
+    void performMaintenance();
     void cleanup();
 
     // Frame rendering
@@ -44,12 +46,10 @@ public:
     uint32_t getFrameWidth() const { return windowWidth; }
     uint32_t getFrameHeight() const { return windowHeight; }
 
-    // Helper methods for chunks
-    void createVertexBuffer(const std::vector<Vertex>& vertices, bgfx::VertexBufferHandle& handle);
-    void createIndexBuffer(const std::vector<uint32_t>& indices, bgfx::IndexBufferHandle& handle);
-
     // Get shader program for chunks to use
     bgfx::ProgramHandle getShaderProgram() const { return shaderProgram; }
+
+    DynamicBufferPool* getBufferPool() { return bufferPool.get(); }
 
 private:
     // Window settings
@@ -57,11 +57,11 @@ private:
     uint32_t windowWidth;
     uint32_t windowHeight;
 
-    bgfx::DynamicVertexBufferHandle chunkVertexBuffer = BGFX_INVALID_HANDLE;
-    bgfx::DynamicIndexBufferHandle chunkIndexBuffer = BGFX_INVALID_HANDLE;
+    std::unique_ptr<DynamicBufferPool> bufferPool;
 
     // bgfx handles
     bgfx::ProgramHandle shaderProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle computeProgram = BGFX_INVALID_HANDLE;
 
     // Store chunks for rendering
     std::vector<Chunk*> chunksToRender;
@@ -79,7 +79,6 @@ private:
     void createUniforms();
 
     void destroyUniforms();
-    void cleanupBuffers();
 
     // Shader loading
     bgfx::ShaderHandle loadShader(const char* name);

@@ -39,12 +39,17 @@ private:
     std::chrono::high_resolution_clock::time_point lastFrameTime;
     float deltaTime = 0.0f;
 
+    // Maintenance
+    float maintenanceUpdateTimer = 0.0f;
+    const float MAINTENANCE_UPDATE_INTERVAL = 30.0f;
+
     // HUD/Window title
     float titleUpdateTimer = 0.0f;
     const float TITLE_UPDATE_INTERVAL = 0.1f;
+    void performRendererMaintenance();
 
     // Render distance control
-    int renderDistance = 6;  // How many chunks to keep loaded around player
+    int renderDistance = 1;  // How many chunks to keep loaded around player
 
     // Initialization and cleanup
     void initWindow();

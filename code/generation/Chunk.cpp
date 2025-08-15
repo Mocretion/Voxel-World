@@ -14,7 +14,6 @@ const float Chunk::CUBE_SIZE = 1.0f;
 
 Chunk::Chunk(int chunkX, int chunkY, int chunkZ)
     : chunkX(chunkX), chunkY(chunkY), chunkZ(chunkZ),
-    vertexBuffer(BGFX_INVALID_HANDLE), indexBuffer(BGFX_INVALID_HANDLE),
     uploadedToGPU(false), gpuResourcesDirty(true)
 {
     // Zero out arrays super fast
@@ -29,10 +28,7 @@ Chunk::~Chunk()
 {
     // GPU resources should be cleaned up explicitly via cleanupGPUResources()
     // before destruction, but add safety check
-    if (bgfx::isValid(vertexBuffer) || bgfx::isValid(indexBuffer))
-    {
-        std::cerr << "Warning: Chunk destroyed without cleaning up bgfx resources!" << std::endl;
-    }
+
 }
 
 void Chunk::clearMesh()
@@ -552,70 +548,63 @@ void Chunk::addQuadToMesh(const Quad& quad)
         });
 }
 
-void Chunk::uploadToBgfx(BgfxRenderer* renderer)
+void Chunk::uploadToBufferPool(DynamicBufferPool* bufferPool)
 {
     if (!meshGenerated || vertices.empty() || indices.empty())
     {
         return;
     }
 
-    if (uploadedToGPU && !gpuResourcesDirty)
+    if (bufferAllocation.isValid() && !gpuResourcesDirty)
     {
-        
-        return;
+        return;  // Already uploaded and unchanged
     }
 
-    // Clean up old buffers
-    cleanupBgfxResources();
+    // Prepare vertex data (convert to raw bytes)
+    const void* vertexData = vertices.data();
+    const void* indexData = indices.data();
 
-    // Create vertex buffer
-    renderer->createVertexBuffer(vertices, vertexBuffer);
+    if (bufferAllocation.isValid())
+    {
+        // Update existing allocation
+        bufferAllocation = bufferPool->updateChunk(
+            this, bufferAllocation,
+            vertices.size(), indices.size(),
+            vertexData, indexData
+        );
+    }
+    else
+    {
+        // New allocation
+        bufferAllocation = bufferPool->allocateChunk(
+            this,
+            vertices.size(), indices.size(),
+            vertexData, indexData
+        );
+    }
 
-    // Create index buffer  
-    renderer->createIndexBuffer(indices, indexBuffer);
+    if (bufferAllocation.isValid())
+    {
+        uploadedToGPU = true;
+        gpuResourcesDirty = false;
 
-    uploadedToGPU = true;
-    gpuResourcesDirty = false;
+        std::cout << "[Chunk] Uploaded to buffer pool - Pair: " << bufferAllocation.bufferPairIndex
+            << ", Vertex offset: " << bufferAllocation.vertexOffset
+            << ", Index offset: " << bufferAllocation.indexOffset << std::endl;
+    }
+    else
+    {
+        std::cerr << "[Chunk] Failed to upload to buffer pool!" << std::endl;
+    }
 }
 
-void Chunk::cleanupBgfxResources()
+void Chunk::cleanupFromBufferPool(DynamicBufferPool* bufferPool)
 {
-    if (bgfx::isValid(vertexBuffer))
+    if (bufferAllocation.isValid() && bufferPool)
     {
-        bgfx::destroy(vertexBuffer);
-        vertexBuffer = BGFX_INVALID_HANDLE;
+        bufferPool->deallocateChunk(this, bufferAllocation);
+        bufferAllocation = DynamicBufferPool::BufferAllocation(); // Reset to invalid
+        uploadedToGPU = false;
+        gpuResourcesDirty = true;
     }
-
-    if (bgfx::isValid(indexBuffer))
-    {
-        bgfx::destroy(indexBuffer);
-        indexBuffer = BGFX_INVALID_HANDLE;
-    }
-
-    uploadedToGPU = false;
-    gpuResourcesDirty = true;
-}
-
-void Chunk::draw(BgfxRenderer* renderer)
-{
-    // Upload to GPU if needed
-    /*if (!hasRenderableData())
-    {
-        uploadToBgfx(renderer);
-
-        // Check again after upload
-        if (!hasRenderableData())
-        {
-            return;
-        }
-    }*/
-
-    // Set vertex and index buffers
-    bgfx::setVertexBuffer(0, vertexBuffer);
-    bgfx::setIndexBuffer(indexBuffer);
-
-    //encoder->setState(BGFX_STATE_DEFAULT);
-
-    // Submit draw call
-    bgfx::submit(0, renderer->getShaderProgram());
 }

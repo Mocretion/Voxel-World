@@ -59,6 +59,8 @@ void VoxelWorld::initComponents()
     renderer = std::make_unique<BgfxRenderer>();
     renderer->initialize(window, currentWindowWidth, currentWindowHeight);
 
+    std::cout << "Initialized renderer..." << std::endl;
+
     // Initialize input manager
     inputManager = std::make_unique<InputManager>();
 
@@ -142,6 +144,17 @@ void VoxelWorld::updateTiming()
     if (deltaTime > 0.1f)
     {
         deltaTime = 0.1f;
+    }
+}
+
+void VoxelWorld::performRendererMaintenance()
+{
+    maintenanceUpdateTimer += deltaTime;
+
+    if (maintenanceUpdateTimer >= MAINTENANCE_UPDATE_INTERVAL)
+    {
+        renderer->performMaintenance();
+        maintenanceUpdateTimer = 0.0f;
     }
 }
 

@@ -13,6 +13,7 @@
 #include <atomic>
 #include <bgfx/bgfx.h>
 #include <iostream>
+#include "DynamicBufferPool.h"
 
 class VulkanRenderer;
 class ChunkManager;
@@ -71,9 +72,9 @@ public:
 
     void clearMesh();
 
-    void uploadToBgfx(class BgfxRenderer* renderer);
-    void draw(class BgfxRenderer* renderer);
-    void cleanupBgfxResources();
+    void uploadToBufferPool(DynamicBufferPool* bufferPool);
+    void cleanupFromBufferPool(DynamicBufferPool* bufferPool);
+    const DynamicBufferPool::BufferAllocation& getBufferAllocation() const { return bufferAllocation; }
 
     // Get the generated vertices and indices
     const std::vector<Vertex>& getVertices() const { return vertices; }
@@ -100,14 +101,7 @@ public:
     bool isUploadedToGPU() const { return uploadedToGPU; }
     bool hasRenderableData() const
     {
-        /*std::cout << "[Chunk] Checking renderable data for chunk at ("
-			<< chunkX << ", " << chunkY << ", " << chunkZ << ") Mesh Generated: " <<
-            meshGenerated << "| indices empty: " << indices.empty() << "| vBufferValid: " << bgfx::isValid(vertexBuffer) <<
-            "| iBufferValid: " << bgfx::isValid(indexBuffer) << std::endl;
-        */
-
-        return meshGenerated && !indices.empty() &&
-            bgfx::isValid(vertexBuffer) && bgfx::isValid(indexBuffer);
+        return meshGenerated && !indices.empty() && bufferAllocation.isValid();
     }
 
     // Completion tracking for incremental display
@@ -136,8 +130,7 @@ private:
     std::vector<uint32_t> indices;
     bool meshGenerated = false;
 
-    bgfx::VertexBufferHandle vertexBuffer = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle indexBuffer = BGFX_INVALID_HANDLE;
+    DynamicBufferPool::BufferAllocation bufferAllocation;
     bool uploadedToGPU = false;
     bool gpuResourcesDirty = true;  // Track if mesh changed since last upload
 

@@ -38,7 +38,10 @@ add_executable(${PROJECT_NAME}
     #"code/rendering/vulkan/VulkanRenderer.cpp"
     "code/rendering/WorldRenderer.cpp"
     # Add any other .cpp files here as you create them
- "code/rendering/bgfx/BgfxRenderer.h" "code/rendering/bgfx/BgfxRenderer.cpp" )
+    "code/rendering/bgfx/BgfxRenderer.h"
+    "code/rendering/bgfx/BgfxRenderer.cpp"
+    "code/rendering/bgfx/DynamicBufferPool.cpp"
+    "code/rendering/bgfx/DynamicBufferPool.h")
 
 target_include_directories(${PROJECT_NAME}
     PRIVATE

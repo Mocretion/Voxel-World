@@ -87,7 +87,7 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ
     return index;
 }
 
-void ChunkManager::ChunkPool::deallocateChunk(size_t index)
+void ChunkManager::ChunkPool::deallocateChunk(size_t index, BgfxRenderer& renderer)
 {
     std::lock_guard<std::mutex> lock(poolMutex);
 
@@ -95,7 +95,7 @@ void ChunkManager::ChunkPool::deallocateChunk(size_t index)
     {
         if (chunks[index])
         {
-            chunks[index]->cleanupBgfxResources();
+            chunks[index]->cleanupFromBufferPool(renderer.getBufferPool());
         }
 
         chunks[index].reset();  // Free the unique_ptr
@@ -519,7 +519,7 @@ void ChunkManager::markChunksAsDisplayed(const std::vector<Chunk*>& chunks)
 // CHUNK REMOVAL AND CLEANUP
 // ============================================================================
 
-int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance)
+int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance, BgfxRenderer& renderer)
 {
     std::vector<std::tuple<int, int, int>> chunkMeshToRemove;
     std::vector<std::tuple<int, int, int>> chunkDataToRemove;
@@ -563,10 +563,10 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
                 Chunk* chunk = chunkPool.getChunk(it->second);
                 if (chunk)
                 {
-                    chunk->cleanupBgfxResources();
+                    chunk->cleanupFromBufferPool(renderer.getBufferPool());
                 }
 
-                chunkPool.deallocateChunk(it->second);
+                chunkPool.deallocateChunk(it->second, renderer);
                 chunkKeyToPoolIndex.erase(it);
 
                 // Remove from queues if present
@@ -584,7 +584,7 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
                 if (chunk)
                 {
                     // Clean up bgfx resources before clearing mesh
-                    chunk->cleanupBgfxResources();
+                    chunk->cleanupFromBufferPool(renderer.getBufferPool());  // TODO: pass renderer to this function
                     chunk->clearMesh();
                 }
                 meshingQueue.remove(key);

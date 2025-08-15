@@ -1,16 +1,16 @@
-$input a_position, a_color0
+$input a_position, a_color0, i_data0
 $output v_color, v_normal
 uniform vec4 u_chunkPos;
 
 #include "bgfx_shader.sh"
 
-vec3 unpackPosition(uint packedPos)
+vec3 unpackPosition(uint packedPos, vec4 offset)
 {
     uint x = (packedPos >> 0u) & 0x7Fu;
     uint y = (packedPos >> 7u) & 0x7Fu;
     uint z = (packedPos >> 14u) & 0x7Fu;
 
-    return vec3(float(x) + u_chunkPos.x * 64.0, float(y) + u_chunkPos.y * 64.0, float(z) + u_chunkPos.z * 64.0);
+    return vec3(float(x) + offset.x * 64.0, float(y) + offset.y * 64.0, float(z) + offset.z * 64.0);
 }
 
 vec3 unpackNormals(uint packedNormals)
@@ -43,7 +43,7 @@ void main()
     uint positionData = uint(a_position);
     uint colorData = uint(a_color0);
     
-    vec3 position = unpackPosition(positionData);
+    vec3 position = unpackPosition(positionData, i_data0);
     vec3 normals = unpackNormals(positionData);
     vec3 color = unpackColor(colorData);
     

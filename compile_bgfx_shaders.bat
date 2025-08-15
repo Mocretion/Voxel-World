@@ -17,6 +17,8 @@ if not exist shaders mkdir shaders
 :: Compile fragment shader  
 %SHADERC% -f code\shader\fs_basic.sc -o shaders\fs_basic.bin --platform windows --type fragment --varyingdef code\shader\varying.def.sc --profile spirv -i "D:\VS C# Projects\Voxel World\external\bgfx\src"
 
+%SHADERC% -f code\shader\cs_indirect.sc -o shaders\cs_indirect.bin --platform windows --type compute --varyingdef code\shader\varying.def.sc --profile spirv -i "D:\VS C# Projects\Voxel World\external\bgfx\src"
+
 if %errorlevel% neq 0 (
     echo Shader compilation failed!
     pause
