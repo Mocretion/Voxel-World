@@ -28,6 +28,9 @@ DynamicBufferPool::BuddyAllocator::BuddyAllocator(size_t totalSize)
     root = createBlock(0, totalSize, 0);
     root->isFree = true;
     freeLists[0].push_back(root);
+
+    std::cout << "[BUDDY] Root block - offset: " << root->offset
+        << ", size: " << root->size << std::endl;
 }
 
 DynamicBufferPool::BuddyAllocator::~BuddyAllocator()
@@ -103,6 +106,10 @@ DynamicBufferPool::BuddyAllocator::allocate(size_t size)
             }
 
             block->isFree = false;
+
+            std::cout << "[BUDDY] Allocated block at offset: " << block->offset
+                << ", size: " << block->size << std::endl;
+
             return block;
         }
     }
@@ -116,9 +123,17 @@ void DynamicBufferPool::BuddyAllocator::splitBlock(Block* block)
 
     size_t halfSize = block->size / 2;
 
+    std::cout << "[BUDDY] Splitting block - parent offset: " << block->offset
+        << ", size: " << block->size << std::endl;
+
     // Create left and right children
     block->left = createBlock(block->offset, halfSize, block->level + 1);
     block->right = createBlock(block->offset + halfSize, halfSize, block->level + 1);
+
+    std::cout << "[BUDDY] Created left child - offset: " << block->left->offset
+        << ", size: " << block->left->size << std::endl;
+    std::cout << "[BUDDY] Created right child - offset: " << block->right->offset
+        << ", size: " << block->right->size << std::endl;
 
     block->left->parent = block;
     block->right->parent = block;
@@ -275,7 +290,12 @@ void DynamicBufferPool::BufferPair::initialize()
         MAX_CHUNKS_PER_BUFFER * 4 + 1,
         BGFX_BUFFER_ALLOW_RESIZE | BGFX_BUFFER_INDEX32
     );
-    std::cout << "Ctor DynamicBufferPool called" << std::endl;
+
+    instanceBuffer = bgfx::createDynamicVertexBuffer(
+        MAX_CHUNKS_PER_BUFFER,
+        ChunkInstanceData::getBgfxLayout(),
+        BGFX_BUFFER_ALLOW_RESIZE | BGFX_BUFFER_COMPUTE_WRITE
+    );
 
     // Create indirect buffer for draw commands#
     indirectBuffer = bgfx::createIndirectBuffer(MAX_CHUNKS_PER_BUFFER);
@@ -311,6 +331,12 @@ void DynamicBufferPool::BufferPair::cleanup()
     {
         bgfx::destroy(indirectBuffer);
         indirectBuffer = BGFX_INVALID_HANDLE;
+    }
+
+    if (bgfx::isValid(instanceBuffer))
+    {
+        bgfx::destroy(instanceBuffer);
+        instanceBuffer = BGFX_INVALID_HANDLE;
     }
 }
 
@@ -431,6 +457,15 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
     // Update draw commands
     pair->needsIndirectUpdate = true;
 
+    std::cout << "[POOL] First allocation? Vertex allocator empty: "
+        << (pair->vertexAllocator->freeLists[0].size() == 1) << std::endl;
+
+    std::cout << "[POOL] Allocated vOffset: "
+        << vertexBlock->offset << std::endl;
+
+    std::cout << "[POOL] Allocated iOffset: "
+        << indexBlock->offset << std::endl;
+
     return allocation;
 }
 
@@ -522,6 +557,7 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
 
     // Build draw commands from chunk allocations
     uint32_t cmdIndex = 1;
+    uint32_t k = 0;
     for (const auto& [chunk, allocation] : pair->chunkAllocations)
     {
         pair->drawCommands[cmdIndex++] = allocation.indexCount;
@@ -529,15 +565,17 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
         pair->drawCommands[cmdIndex++] = allocation.indexOffset / sizeof(uint32_t);
         pair->drawCommands[cmdIndex++] = allocation.vertexOffset / sizeof(Vertex);
 
-        pair->chunkInstanceData->x = chunk->getChunkX();
-        pair->chunkInstanceData->y = chunk->getChunkY();
-        pair->chunkInstanceData->z = chunk->getChunkZ();
-        pair->chunkInstanceData->pad = 0;
+        pair->chunkInstanceData[k].x = chunk->getChunkX();
+        pair->chunkInstanceData[k].y = chunk->getChunkY();
+        pair->chunkInstanceData[k].z = chunk->getChunkZ();
+        pair->chunkInstanceData[k].pad = 0;
 
-        std::cout << "Commands in buffer: " << pair->drawCommands[0] << ", iCount: " << pair->drawCommands[1] << ", amount: " << pair->drawCommands[2] << ", iOffset: " << pair->drawCommands[3] << ", vOffset: " << pair->drawCommands[4] << std::endl;
+        std::cout << "Commands in buffer: iCount: " << pair->drawCommands[cmdIndex - 4] << ", amount: " << pair->drawCommands[cmdIndex - 3] << ", iOffset: " << pair->drawCommands[cmdIndex - 2] << ", vOffset: " << pair->drawCommands[cmdIndex - 1] << std::endl;
         std::cout << "Chunk indices: " << chunk->getIndices().size() << ", vCount: " << chunk->getVertices().size()  << std::endl;
+        std::cout << "---------------"  << std::endl;
 
-        break;
+        ++k;
+        //break;
     }
 
     pair->drawCommands[0] = (cmdIndex - 1) / 4;
@@ -551,6 +589,9 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
         }
         bgfx::update(pair->drawCommandBuffer, 0,
             bgfx::makeRef(pair->drawCommands, (pair->drawCommands[0] * 4 + 1) * sizeof(uint32_t)));
+
+        bgfx::update(pair->instanceBuffer, 0,
+            bgfx::makeRef(pair->chunkInstanceData, pair->drawCommands[0] * sizeof(ChunkInstanceData)));
     }
 
     pair->needsIndirectUpdate = false;
@@ -558,8 +599,6 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
 
 void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::ProgramHandle renderProgram, bgfx::UniformHandle chunkPosUniform)
 {
-    std::cout << "Loading " << bufferPairs.size() << " Buffers..." << std::endl;
-
     for (size_t i = 0; i < bufferPairs.size(); ++i)
     {
         BufferPair* pair = bufferPairs[i].get();
@@ -571,12 +610,6 @@ void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::Prog
 
         if (pair->drawCommands[0] == 0) continue;
 
-        bgfx::InstanceDataBuffer chunkInstanceBuffer;
-
-        bgfx::allocInstanceDataBuffer(&chunkInstanceBuffer, pair->drawCommands[0], sizeof(ChunkInstanceData));
-
-        std::memcpy(chunkInstanceBuffer.data, pair->chunkInstanceData, pair->drawCommands[0] * sizeof(ChunkInstanceData));
-
         bgfx::setBuffer(0, pair->drawCommandBuffer, bgfx::Access::Read);
         bgfx::setBuffer(1, pair->indirectBuffer, bgfx::Access::ReadWrite);
 
@@ -586,7 +619,7 @@ void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::Prog
         bgfx::setVertexBuffer(0, pair->vertexBuffer);
         bgfx::setIndexBuffer(pair->indexBuffer);
         
-        bgfx::setInstanceDataBuffer(&chunkInstanceBuffer, 0, pair->drawCommands[0]);
+        bgfx::setInstanceDataBuffer(pair->instanceBuffer, 0, pair->drawCommands[0]);
 
         // Submit indirect draw call
         bgfx::submit(0, renderProgram, pair->indirectBuffer, 0, pair->drawCommands[0]);

@@ -12,9 +12,9 @@ class Chunk;
 
 class DynamicBufferPool {
 public:
-    static constexpr size_t TOTAL_PAIR_SIZE = 63999992;     // 64 MB
-    static constexpr size_t VERTEX_BUFFER_SIZE = 36571424;  // ~36.57 MB (4.571.428 vertices)
-    static constexpr size_t INDEX_BUFFER_SIZE = 27428568;   // ~27.43 MB (6.857.142 indices)
+    static constexpr size_t TOTAL_PAIR_SIZE = 67108864;     // 67 MB MB
+    static constexpr size_t VERTEX_BUFFER_SIZE = 33554432;  // ~33.55 MB (4.194.304 vertices)
+    static constexpr size_t INDEX_BUFFER_SIZE = 33554432;   // ~33.55  MB
     static constexpr size_t MAX_CHUNKS_PER_BUFFER = 2048;     // Maximum chunks per buffer pair
 
     struct BufferAllocation {
@@ -57,13 +57,14 @@ private:
         void defragment(std::function<void(size_t oldOffset, size_t newOffset, size_t size)> moveCallback);
         float getFragmentation() const;
 
+        std::vector<std::vector<Block*>> freeLists;  // Free lists per level
+
     private:
         size_t totalSize;
         size_t minBlockSize;
         int maxLevel;
         Block* root;
         std::vector<std::unique_ptr<Block>> blockPool;
-        std::vector<std::vector<Block*>> freeLists;  // Free lists per level
 
         size_t roundUpToPowerOfTwo(size_t size) const;
         int getSizeLevel(size_t size) const;
@@ -78,6 +79,22 @@ private:
         int y;
         int z;
         int pad;
+
+        static bgfx::VertexLayout getBgfxLayout()
+        {
+            static bgfx::VertexLayout layout;
+            static bool initialized = false;
+
+            if (!initialized)
+            {
+                layout.begin()
+                    .add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
+                    .end();
+                initialized = true;
+            }
+
+            return layout;
+        }
     };
 
     struct BufferPair {
@@ -85,7 +102,8 @@ private:
         bgfx::DynamicIndexBufferHandle indexBuffer = BGFX_INVALID_HANDLE;
         bgfx::DynamicIndexBufferHandle drawCommandBuffer = BGFX_INVALID_HANDLE;
         bgfx::IndirectBufferHandle indirectBuffer = BGFX_INVALID_HANDLE;
-        
+        bgfx::DynamicVertexBufferHandle instanceBuffer = BGFX_INVALID_HANDLE;
+
 
         std::unique_ptr<BuddyAllocator> vertexAllocator;
         std::unique_ptr<BuddyAllocator> indexAllocator;
