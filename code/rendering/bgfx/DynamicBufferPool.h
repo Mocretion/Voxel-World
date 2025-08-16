@@ -75,10 +75,10 @@ private:
     };
 
     struct ChunkInstanceData {
-        int x;
-        int y;
-        int z;
-        int pad;
+        float x;
+        float y;
+        float z;
+        float pad;
 
         static bgfx::VertexLayout getBgfxLayout()
         {

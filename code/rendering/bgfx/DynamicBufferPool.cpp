@@ -565,10 +565,10 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
         pair->drawCommands[cmdIndex++] = allocation.indexOffset / sizeof(uint32_t);
         pair->drawCommands[cmdIndex++] = allocation.vertexOffset / sizeof(Vertex);
 
-        pair->chunkInstanceData[k].x = chunk->getChunkX();
-        pair->chunkInstanceData[k].y = chunk->getChunkY();
-        pair->chunkInstanceData[k].z = chunk->getChunkZ();
-        pair->chunkInstanceData[k].pad = 0;
+        pair->chunkInstanceData[k].x = static_cast<float>(chunk->getChunkX());
+        pair->chunkInstanceData[k].y = static_cast<float>(chunk->getChunkY());
+        pair->chunkInstanceData[k].z = static_cast<float>(chunk->getChunkZ());
+        pair->chunkInstanceData[k].pad = 0.0f;
 
         std::cout << "Commands in buffer: iCount: " << pair->drawCommands[cmdIndex - 4] << ", amount: " << pair->drawCommands[cmdIndex - 3] << ", iOffset: " << pair->drawCommands[cmdIndex - 2] << ", vOffset: " << pair->drawCommands[cmdIndex - 1] << std::endl;
         std::cout << "Chunk indices: " << chunk->getIndices().size() << ", vCount: " << chunk->getVertices().size()  << std::endl;
