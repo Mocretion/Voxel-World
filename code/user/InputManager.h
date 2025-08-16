@@ -14,6 +14,7 @@ public:
     // Set callbacks for special events
     void setToggleWireframeCallback(std::function<void()> callback);
     void setToggleMouseCaptureCallback(std::function<void()> callback);
+    void setToggleChunkGenerationCallback(std::function<void()> callback);
     void setWindowResizeCallback(std::function<void(uint32_t, uint32_t)> callback);
 
     // Callbacks for render distance control
@@ -24,8 +25,12 @@ public:
     bool isMouseCaptured() const { return mouseCaptured; }
     void setMouseCaptured(bool captured);
 
+    void setEnableChunkGeneration(bool generate) { enableChunkGeneration = generate; }
+    bool getEnableChunkGeneration() { return enableChunkGeneration; }
+
 private:
     bool mouseCaptured = false;
+    bool enableChunkGeneration = true;
     bool firstMouseMovement = true;
     int lastMouseX = 0;
     int lastMouseY = 0;
@@ -33,6 +38,7 @@ private:
     // Callbacks for special actions
     std::function<void()> onToggleWireframe;
     std::function<void()> onToggleMouseCapture;
+    std::function<void()> onToggleChunkGeneration;
     std::function<void(uint32_t, uint32_t)> onWindowResize;
 
     // Render distance callbacks

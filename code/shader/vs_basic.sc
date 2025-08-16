@@ -4,7 +4,7 @@ uniform vec4 u_chunkPos;
 
 #include "bgfx_shader.sh"
 
-vec3 unpackPosition(uint packedPos, vec4 offset)
+vec3 unpackPosition(uint packedPos)
 {
     uint x = (packedPos >> 0u) & 0x7Fu;
     uint y = (packedPos >> 7u) & 0x7Fu;

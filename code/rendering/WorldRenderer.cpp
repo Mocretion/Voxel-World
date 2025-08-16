@@ -10,7 +10,7 @@ WorldRenderer::WorldRenderer(BgfxRenderer* renderer)  // Changed parameter type
     std::cout << "WorldRenderer initialized with render distance: " << renderDistance << " chunks" << std::endl;
 }
 
-void WorldRenderer::updateWorld(const Camera& camera)
+void WorldRenderer::updateWorld(const Camera& camera, const bool updateBasedOnPlayerPos)
 {
     // Convert player's world position to chunk coordinates
     glm::ivec3 playerChunk = worldPositionToChunk(camera.getPosition());
@@ -24,13 +24,16 @@ void WorldRenderer::updateWorld(const Camera& camera)
         currentPlayerChunk = playerChunk;
 
         // Generate new chunks around the player
-        generateChunksAroundPlayer(playerChunk);
+        if (updateBasedOnPlayerPos)
+        {
+            generateChunksAroundPlayer(playerChunk);
 
-        // Remove chunks that are too far away
-        removeDistantChunks(playerChunk);
+            // Remove chunks that are too far away
+            removeDistantChunks(playerChunk);
 
-        // Rebuild the render list when player moves to new chunk
-        rebuildRenderList();
+            // Rebuild the render list when player moves to new chunk
+            rebuildRenderList();
+        }
 
         lastUpdateChunk = playerChunk;
     }

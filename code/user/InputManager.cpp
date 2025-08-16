@@ -66,6 +66,11 @@ void InputManager::setToggleMouseCaptureCallback(std::function<void()> callback)
     onToggleMouseCapture = callback;
 }
 
+void InputManager::setToggleChunkGenerationCallback(std::function<void()> callback)
+{
+    onToggleChunkGeneration = callback;
+}
+
 void InputManager::setWindowResizeCallback(std::function<void(uint32_t, uint32_t)> callback)
 {
     std::cout << "[DEBUG] Setting window resize callback" << std::endl;
@@ -122,6 +127,14 @@ void InputManager::handleKeyPress(SDL_Keycode key)
         if (onToggleWireframe)
         {
             onToggleWireframe();
+        }
+        break;
+
+    case SDLK_F2:
+        std::cout << "[DEBUG] F2 key pressed - toggling enable chunk generation" << std::endl;
+        if (onToggleChunkGeneration)
+        {
+            onToggleChunkGeneration();
         }
         break;
 

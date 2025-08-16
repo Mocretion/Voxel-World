@@ -18,7 +18,7 @@ public:
     int getRenderDistance() const { return renderDistance; }
 
     // Update world based on player position - this replaces generateWorld
-    void updateWorld(const Camera& camera);
+    void updateWorld(const Camera& camera, const bool updateBasedOnPlayerPos);
 
     // Render the world with the given camera
     void render(const Camera& camera, float aspectRatio);
@@ -28,7 +28,7 @@ public:
 
     // Get current statistics for debugging
     int getLoadedChunkCount() const;
-    glm::ivec2 getCurrentPlayerChunk() const { return currentPlayerChunk; }
+    glm::ivec3 getCurrentPlayerChunk() const { return currentPlayerChunk; }
 
 private:
     BgfxRenderer* bgfxRenderer;  // Changed from vulkanRenderer

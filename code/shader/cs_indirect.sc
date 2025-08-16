@@ -22,7 +22,7 @@ void main()
             instanceDataIn[k * 4 + 2],  // number of instances for this draw call. To disable draw call: set to 0
             instanceDataIn[k * 4 + 3],  // offset in the index buffer
             instanceDataIn[k * 4 + 4],  // offset in the vertex buffer. Note that you can use this to "reindex" submeshses - all indicies in this draw will be decremented by this amount
-            k                      // offset in the instance buffer. If you are drawing more than 1 instance per call see gpudrivenrendering for how to handle
+            totalInstances              // offset in the instance buffer. If you are drawing more than 1 instance per call see gpudrivenrendering for how to handle
             );
 
         totalInstances = totalInstances + instanceDataIn[k * 4 + 2];

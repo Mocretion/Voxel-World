@@ -67,6 +67,7 @@ void VoxelWorld::initComponents()
     // Set up input callbacks
     inputManager->setToggleWireframeCallback([this]() { toggleWireframe(); });
     inputManager->setToggleMouseCaptureCallback([this]() { toggleMouseCapture(); });
+    inputManager->setToggleChunkGenerationCallback([this]() { inputManager->setEnableChunkGeneration(!inputManager->getEnableChunkGeneration()); });
     inputManager->setWindowResizeCallback([this](uint32_t w, uint32_t h) { handleWindowResize(w, h); });
 
     // Set up render distance callbacks
@@ -105,7 +106,7 @@ void VoxelWorld::mainLoop()
 
         // Update world based on camera position (infinite terrain)
 
-        worldRenderer->updateWorld(*camera);
+        worldRenderer->updateWorld(*camera, inputManager->getEnableChunkGeneration());
         
 
         // Begin rendering
@@ -169,7 +170,7 @@ void VoxelWorld::updateWindowTitle()
         std::string direction = worldRenderer->getDirectionString(camera->getFront());
 
         // Get current chunk and loaded chunk count
-        glm::ivec2 currentChunk = worldRenderer->getCurrentPlayerChunk();
+        glm::ivec3 currentChunk = worldRenderer->getCurrentPlayerChunk();
         int loadedChunks = worldRenderer->getLoadedChunkCount();
 
         // Create title
@@ -177,7 +178,7 @@ void VoxelWorld::updateWindowTitle()
             std::to_string(static_cast<int>(pos.x)) + ", " +
             std::to_string(static_cast<int>(pos.y)) + ", " +
             std::to_string(static_cast<int>(pos.z)) + ") | " +
-            "Chunk: (" + std::to_string(currentChunk.x) + ", " + std::to_string(currentChunk.y) + ") | " +
+            "Chunk: (" + std::to_string(currentChunk.x) + ", " + std::to_string(currentChunk.y) + ", " + std::to_string(currentChunk.z) + ") | " +
             "Loaded: " + std::to_string(loadedChunks) + " chunks | " +
             "RD: " + std::to_string(worldRenderer->getRenderDistance()) + " | " +
             direction + " | " +

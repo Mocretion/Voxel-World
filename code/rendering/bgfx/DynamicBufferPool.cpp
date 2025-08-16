@@ -555,11 +555,21 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
     memset(pair->drawCommands, 0, (pair->drawCommands[0] * 4 + 1) * sizeof(uint32_t));
     memset(pair->chunkInstanceData, 0, (pair->drawCommands[0]) * sizeof(ChunkInstanceData));
 
+    std::cout << "\n=== UPDATING INDIRECT BUFFER ===" << std::endl;
+    std::cout << "Chunks to process: " << pair->chunkAllocations.size() << std::endl;
+
     // Build draw commands from chunk allocations
     uint32_t cmdIndex = 1;
     uint32_t k = 0;
     for (const auto& [chunk, allocation] : pair->chunkAllocations)
     {
+        std::cout << "Processing chunk (" << chunk->getChunkX() << ","
+            << chunk->getChunkY() << "," << chunk->getChunkZ() << ")" << std::endl;
+        std::cout << "  Vertices: " << chunk->getVertices().size()
+            << ", Indices: " << chunk->getIndices().size() << std::endl;
+        std::cout << "  Allocation - vOffset: " << allocation.vertexOffset
+            << ", iOffset: " << allocation.indexOffset << std::endl;
+
         pair->drawCommands[cmdIndex++] = allocation.indexCount;
         pair->drawCommands[cmdIndex++] = 1;
         pair->drawCommands[cmdIndex++] = allocation.indexOffset / sizeof(uint32_t);
@@ -570,9 +580,11 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
         pair->chunkInstanceData[k].z = static_cast<float>(chunk->getChunkZ());
         pair->chunkInstanceData[k].pad = 0.0f;
 
-        std::cout << "Commands in buffer: iCount: " << pair->drawCommands[cmdIndex - 4] << ", amount: " << pair->drawCommands[cmdIndex - 3] << ", iOffset: " << pair->drawCommands[cmdIndex - 2] << ", vOffset: " << pair->drawCommands[cmdIndex - 1] << std::endl;
-        std::cout << "Chunk indices: " << chunk->getIndices().size() << ", vCount: " << chunk->getVertices().size()  << std::endl;
-        std::cout << "---------------"  << std::endl;
+        std::cout << "  Draw command: indexCount=" << pair->drawCommands[cmdIndex - 4]
+            << ", instanceCount=" << pair->drawCommands[cmdIndex - 3]
+            << ", indexOffset=" << pair->drawCommands[cmdIndex - 2]
+            << ", vertexOffset=" << pair->drawCommands[cmdIndex - 1] << std::endl;
+
 
         ++k;
         //break;
@@ -583,22 +595,24 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
     // Update command buffer
     if (pair->drawCommands[0] > 0)
     {
-        if (pair->drawCommands[0] > 1)
-        {
-            std::cout << "Commands in buffer: " << pair->drawCommands[0] << ", iCount: " << pair->drawCommands[5] << ", amount: " << pair->drawCommands[6] << ", iOffset: " << pair->drawCommands[7] << ", vOffset: " << pair->drawCommands[8] << std::endl;
-        }
         bgfx::update(pair->drawCommandBuffer, 0,
             bgfx::makeRef(pair->drawCommands, (pair->drawCommands[0] * 4 + 1) * sizeof(uint32_t)));
 
         bgfx::update(pair->instanceBuffer, 0,
             bgfx::makeRef(pair->chunkInstanceData, pair->drawCommands[0] * sizeof(ChunkInstanceData)));
+
+        std::cout << "Updated command buffer with " << pair->drawCommands[0] << " draw commands" << std::endl;
+
     }
 
     pair->needsIndirectUpdate = false;
+    std::cout << "==============================\n" << std::endl;
+
 }
 
 void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::ProgramHandle renderProgram, bgfx::UniformHandle chunkPosUniform)
 {
+
     for (size_t i = 0; i < bufferPairs.size(); ++i)
     {
         BufferPair* pair = bufferPairs[i].get();
@@ -608,7 +622,10 @@ void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::Prog
         // Update indirect buffer if needed
         updateIndirectBuffer(pair);
 
-        if (pair->drawCommands[0] == 0) continue;
+        if (pair->drawCommands[0] == 0)
+        {
+            continue;
+        }
 
         bgfx::setBuffer(0, pair->drawCommandBuffer, bgfx::Access::Read);
         bgfx::setBuffer(1, pair->indirectBuffer, bgfx::Access::ReadWrite);
@@ -623,6 +640,7 @@ void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::Prog
 
         // Submit indirect draw call
         bgfx::submit(0, renderProgram, pair->indirectBuffer, 0, pair->drawCommands[0]);
+
     }
 }
 
