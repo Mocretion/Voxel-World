@@ -299,21 +299,16 @@ void BgfxRenderer::toggleWireframe()
 
 void BgfxRenderer::performMaintenance()
 {
-    static auto lastDefrag = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
+    return;
 
     // Defragment every 60 seconds if fragmentation is high
-    if (std::chrono::duration_cast<std::chrono::seconds>(now - lastDefrag).count() > 60)
+    float fragmentation = bufferPool->getAverageFragmentation();
+    if (fragmentation > 0.3f)
     {
-        float fragmentation = bufferPool->getAverageFragmentation();
-        if (fragmentation > 0.3f)
-        {
-            std::cout << "Performing buffer defragmentation (fragmentation: "
-                << fragmentation << ")" << std::endl;
-            bufferPool->defragmentBuffers(0.3f);
-        }
-        lastDefrag = now;
-    }
+        std::cout << "Performing buffer defragmentation (fragmentation: "
+            << fragmentation << ")" << std::endl;
+        bufferPool->defragmentBuffers(0.3f);
+    }    
 }
 
 void BgfxRenderer::cleanup()
