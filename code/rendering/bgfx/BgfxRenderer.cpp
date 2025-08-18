@@ -299,9 +299,7 @@ void BgfxRenderer::toggleWireframe()
 
 void BgfxRenderer::performMaintenance()
 {
-    return;
-
-    // Defragment every 60 seconds if fragmentation is high
+    // Defragment if fragmentation is high
     float fragmentation = bufferPool->getAverageFragmentation();
     if (fragmentation > 0.3f)
     {
