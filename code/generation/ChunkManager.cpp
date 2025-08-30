@@ -373,6 +373,7 @@ void ChunkManager::processGenerationBatch(ThreadWorkBatch& batch, int threadId)
         }
 
         // Allocate and generate chunk (now uses stack allocation internally)
+
         size_t poolIndex = chunkPool.allocateChunk(chunkX, chunkY, chunkZ);
 
         chunkPool.chunks[poolIndex]->generateTerrain();

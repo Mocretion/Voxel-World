@@ -550,6 +550,8 @@ void Chunk::addQuadToMesh(const Quad& quad)
 
 void Chunk::uploadToBufferPool(DynamicBufferPool* bufferPool)
 {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     if (!meshGenerated || vertices.empty() || indices.empty())
     {
         return;
@@ -596,6 +598,11 @@ void Chunk::uploadToBufferPool(DynamicBufferPool* bufferPool)
     {
         std::cerr << "[Chunk] Failed to upload to buffer pool!" << std::endl;
     }
+
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - startTime);
+
+    std::cout << "[CHUNK] === BUFFER UPLOAD COMPLETE === " << duration << std::endl;
 }
 
 void Chunk::cleanupFromBufferPool(DynamicBufferPool* bufferPool)

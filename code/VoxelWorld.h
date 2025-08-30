@@ -49,7 +49,7 @@ private:
     void performRendererMaintenance();
 
     // Render distance control
-    int renderDistance = 2;  // How many chunks to keep loaded around player
+    int renderDistance = 10;  // How many chunks to keep loaded around player
 
     // Initialization and cleanup
     void initWindow();

@@ -95,10 +95,6 @@ DynamicBufferPool::BuddyAllocator::allocate(size_t size)
     size_t requiredSize = roundUpToPowerOfTwo(size);
     int targetLevel = getSizeLevel(requiredSize);
 
-    std::cout << "[BUDDY] Allocate request - size: " << size
-        << ", rounded: " << requiredSize
-        << ", target level: " << targetLevel << std::endl;
-
     // Find a free block at target level or lower (larger blocks)
     for (int level = targetLevel; level >= 0; level--)
     {
@@ -109,10 +105,6 @@ DynamicBufferPool::BuddyAllocator::allocate(size_t size)
 
             // Mark as not free immediately
             block->isFree = false;
-
-            std::cout << "[BUDDY] Found free block at level " << level
-                << ", offset: " << block->offset
-                << ", size: " << block->size << std::endl;
 
             // Split block down to target level if needed
             while (block->level < targetLevel)
@@ -128,16 +120,7 @@ DynamicBufferPool::BuddyAllocator::allocate(size_t size)
                 childFreeList.erase(std::remove(childFreeList.begin(), childFreeList.end(), block),
                     childFreeList.end());
                 block->isFree = false;
-
-                std::cout << "[BUDDY] Using left child at offset: " << block->offset
-                    << ", size: " << block->size << std::endl;
             }
-
-            // Final validation - print all allocated blocks to check for overlaps
-            std::cout << "[BUDDY] Final allocation - offset: " << block->offset
-                << ", size: " << block->size
-                << ", ends at: " << (block->offset + block->size)
-                << ", level: " << block->level << std::endl;
 
             return block;
         }
@@ -163,10 +146,6 @@ void DynamicBufferPool::BuddyAllocator::splitBlock(Block* block)
 
     size_t halfSize = block->size / 2;
 
-    std::cout << "[BUDDY] Splitting block - offset: " << block->offset
-        << ", size: " << block->size
-        << ", level: " << block->level << std::endl;
-
     // Create left and right children
     block->left = createBlock(block->offset, halfSize, block->level + 1);
     block->right = createBlock(block->offset + halfSize, halfSize, block->level + 1);
@@ -184,11 +163,6 @@ void DynamicBufferPool::BuddyAllocator::splitBlock(Block* block)
     // The allocation function will remove the one it uses
     freeLists[block->level + 1].push_back(block->left);
     freeLists[block->level + 1].push_back(block->right);
-
-    std::cout << "[BUDDY] Split complete - left: " << block->left->offset
-        << " (size: " << block->left->size << ")"
-        << ", right: " << block->right->offset
-        << " (size: " << block->right->size << ")" << std::endl;
 }
 
 void DynamicBufferPool::BuddyAllocator::deallocate(Block* block)
@@ -378,12 +352,6 @@ DynamicBufferPool::DynamicBufferPool()
     auto firstPair = std::make_unique<BufferPair>();
     firstPair->initialize();
     bufferPairs.push_back(std::move(firstPair));
-
-    std::cout << "[POOL] DynamicBufferPool initialized with buffer sizes:" << std::endl;
-    std::cout << "  Vertex Buffer: " << VERTEX_BUFFER_SIZE << " bytes ("
-        << VERTEX_BUFFER_SIZE / sizeof(Vertex) << " vertices)" << std::endl;
-    std::cout << "  Index Buffer: " << INDEX_BUFFER_SIZE << " bytes ("
-        << INDEX_BUFFER_SIZE / sizeof(uint32_t) << " indices)" << std::endl;
 }
 
 DynamicBufferPool::~DynamicBufferPool()
@@ -425,12 +393,9 @@ DynamicBufferPool::BufferAllocation
 DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexCount,
     const void* vertexData, const void* indexData)
 {
-    std::lock_guard<std::mutex> lock(poolMutex);
+    auto startTime = std::chrono::high_resolution_clock::now();
 
-    std::cout << "\n[POOL] === ALLOCATING CHUNK ===" << std::endl;
-    std::cout << "[POOL] Chunk (" << chunk->getChunkX() << ", "
-        << chunk->getChunkY() << ", " << chunk->getChunkZ() << ")" << std::endl;
-    std::cout << "[POOL] Vertices: " << vertexCount << ", Indices: " << indexCount << std::endl;
+    std::lock_guard<std::mutex> lock(poolMutex);
 
     size_t vertexSize = vertexCount * sizeof(Vertex);
     size_t indexSize = indexCount * sizeof(uint32_t);
@@ -438,8 +403,6 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
     // Ensure proper alignment
     vertexSize = (vertexSize + 15) & ~15;  // Align to 16 bytes
     indexSize = (indexSize + 15) & ~15;
-
-    std::cout << "[POOL] Byte sizes - Vertex: " << vertexSize << ", Index: " << indexSize << std::endl;
 
     // Find or create suitable buffer pair
     BufferPair* pair = findOrCreateBufferPair(vertexSize, indexSize);
@@ -501,11 +464,6 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
     allocation.vertexBlockHandle = vertexBlock;
     allocation.indexBlockHandle = indexBlock;
 
-    std::cout << "[POOL] Allocation successful:" << std::endl;
-    std::cout << "  Buffer pair: " << pairIndex << std::endl;
-    std::cout << "  Vertex offset: " << allocation.vertexOffset << " (block size: " << vertexBlock->size << ")" << std::endl;
-    std::cout << "  Index offset: " << allocation.indexOffset << " (block size: " << indexBlock->size << ")" << std::endl;
-
     // Upload data to buffers
     uploadToBuffer(pair, allocation, vertexData, indexData);
 
@@ -514,7 +472,10 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
     pair->activeChunks++;
     pair->needsIndirectUpdate = true;
 
-    std::cout << "[POOL] === ALLOCATION COMPLETE ===" << std::endl;
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - startTime);
+
+    std::cout << "[POOL] === ALLOCATION COMPLETE === " << duration << std::endl;
 
     return allocation;
 }
@@ -527,9 +488,6 @@ void DynamicBufferPool::uploadToBuffer(BufferPair* pair, const BufferAllocation&
     {
         uint32_t vertexStartIndex = allocation.vertexOffset / sizeof(Vertex);
 
-        std::cout << "[POOL] Uploading vertices - start index: " << vertexStartIndex
-            << ", count: " << allocation.vertexCount << std::endl;
-
         bgfx::update(pair->vertexBuffer,
             vertexStartIndex,
             bgfx::makeRef(vertexData, allocation.vertexCount * sizeof(Vertex)));
@@ -540,9 +498,6 @@ void DynamicBufferPool::uploadToBuffer(BufferPair* pair, const BufferAllocation&
     {
         uint32_t indexStartIndex = allocation.indexOffset / sizeof(uint32_t);
 
-        std::cout << "[POOL] Uploading indices - start index: " << indexStartIndex
-            << ", count: " << allocation.indexCount << std::endl;
-
         bgfx::update(pair->indexBuffer,
             indexStartIndex,
             bgfx::makeRef(indexData, allocation.indexCount * sizeof(uint32_t)));
@@ -552,6 +507,8 @@ void DynamicBufferPool::uploadToBuffer(BufferPair* pair, const BufferAllocation&
 void DynamicBufferPool::deallocateChunk(Chunk* chunk, const BufferAllocation& allocation)
 {
     if (!allocation.isValid()) return;
+
+    auto startTime = std::chrono::high_resolution_clock::now();
 
     std::lock_guard<std::mutex> lock(poolMutex);
 
@@ -566,6 +523,7 @@ void DynamicBufferPool::deallocateChunk(Chunk* chunk, const BufferAllocation& al
     }
 
     BufferPair* pair = bufferPairs[allocation.bufferPairIndex].get();
+
 
     // Deallocate from buddy allocators
     if (allocation.vertexBlockHandle)
@@ -584,8 +542,11 @@ void DynamicBufferPool::deallocateChunk(Chunk* chunk, const BufferAllocation& al
     pair->activeChunks--;
     pair->needsIndirectUpdate = true;
 
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - startTime);
+
     std::cout << "[POOL] Deallocation complete. Active chunks in pair: " << pair->activeChunks << std::endl;
-    std::cout << "[POOL] === DEALLOCATION COMPLETE ===" << std::endl;
+    std::cout << "[POOL] === DEALLOCATION COMPLETE === Active chunks in pair: " << pair->activeChunks << " Dealloc time: " << duration << std::endl;
 }
 
 DynamicBufferPool::BufferAllocation
@@ -648,12 +609,6 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
         // Validate offsets
         uint32_t indexOffset = allocation.indexOffset / sizeof(uint32_t);
         uint32_t vertexOffset = allocation.vertexOffset / sizeof(Vertex);
-
-        std::cout << "[POOL] Chunk #" << k << " (" << chunk->getChunkX() << ","
-            << chunk->getChunkY() << "," << chunk->getChunkZ() << ")" << std::endl;
-        std::cout << "  Index count: " << allocation.indexCount
-            << ", Index offset: " << indexOffset << std::endl;
-        std::cout << "  Vertex offset: " << vertexOffset << std::endl;
 
         pair->drawCommands[cmdIndex++] = allocation.indexCount;
         pair->drawCommands[cmdIndex++] = 1;  // Instance count
