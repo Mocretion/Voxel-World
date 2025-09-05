@@ -69,7 +69,7 @@ void WorldRenderer::updateIncrementalDisplay()
 
     if (!newlyCompleted.empty())
     {
-        std::cout << "[INCREMENTAL] Adding " << newlyCompleted.size() << " newly completed chunks to render list" << std::endl;
+        //std::cout << "[INCREMENTAL] Adding " << newlyCompleted.size() << " newly completed chunks to render list" << std::endl;
 
         // Add newly completed chunks to our render list
         for (Chunk* chunk : newlyCompleted)
@@ -91,7 +91,7 @@ void WorldRenderer::updateIncrementalDisplay()
         // Mark these chunks as displayed so they won't be processed again
         chunkManager.markChunksAsDisplayed(newlyCompleted);
 
-        std::cout << "[INCREMENTAL] Total chunks in render list: " << currentRenderChunks.size() << std::endl;
+        //std::cout << "[INCREMENTAL] Total chunks in render list: " << currentRenderChunks.size() << std::endl;
     }
 }
 
@@ -196,6 +196,8 @@ void WorldRenderer::generateChunksAroundPlayer(const glm::ivec3& playerChunk)
 
 void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
 {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     int removeMeshDistance = renderDistance;
     int removeDataDistance = renderDistance + ADD_CALCULATION_DISTANCE;
 
@@ -210,6 +212,11 @@ void WorldRenderer::removeDistantChunks(const glm::ivec3& playerChunk)
         rebuildRenderList();
         std::cout << "Removed " << chunksRemoved << " distant chunks" << std::endl;
     }
+
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - startTime);
+
+    std::cout << "=== Removed chunks in " << duration << std::endl;
 }
 
 void WorldRenderer::render(const Camera& camera, float aspectRatio)

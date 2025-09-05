@@ -106,6 +106,8 @@ void VoxelWorld::mainLoop()
 
         // Update world based on camera position (infinite terrain)
 
+        worldRenderer->processChunkDeallocations();
+
         worldRenderer->updateWorld(*camera, inputManager->getEnableChunkGeneration());
         
 
@@ -182,6 +184,7 @@ void VoxelWorld::updateWindowTitle()
             "Loaded: " + std::to_string(loadedChunks) + " chunks | " +
             "RD: " + std::to_string(worldRenderer->getRenderDistance()) + " | " +
             direction + " | " +
+			"BPairs: " + std::to_string(renderer->getBufferPool()->getBufferPairCount()) + " | " +
             "FPS: " + std::to_string(static_cast<int>(1.0f / deltaTime));
 
         SDL_SetWindowTitle(window, title.c_str());

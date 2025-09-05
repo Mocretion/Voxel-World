@@ -17,6 +17,8 @@ public:
     void setRenderDistance(int distance) { renderDistance = distance; }
     int getRenderDistance() const { return renderDistance; }
 
+    void processChunkDeallocations() { chunkManager.processChunkDeallocations(); }
+
     // Update world based on player position - this replaces generateWorld
     void updateWorld(const Camera& camera, const bool updateBasedOnPlayerPos);
 

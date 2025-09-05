@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <unordered_set>
+#include <queue>
 #include <utility>
 #include "Vertex.h"
 #include "PerlinNoise.h"
@@ -40,6 +41,7 @@ public:
     void markChunksForGeneration(std::vector<std::tuple<int, int, int>> chunks);
     void markChunksForMeshing(std::vector<std::tuple<int, int, int>> chunks);
     void generateChunks();
+    void processChunkDeallocations();
     void updateMeshes();
     int removeDistantChunks(int centerX, int centerY, int centerZ, int maxDataDistance, int maxMeshDistance, BgfxRenderer& renderer);
 
@@ -67,16 +69,21 @@ public:
     mutable std::shared_mutex chunkMutex;
 
 private:
+
     // Memory pool for better cache locality (no TLS complexity)
     struct ChunkPool {
         std::vector<std::unique_ptr<Chunk>> chunks; // Use unique_ptr for stable addresses
         std::vector<bool> allocated;                // Track which slots are used
+		std::queue<size_t> pendingDeallocations;    // Chunks that require deallocation
+        mutable std::mutex deallocationMutex;       
         std::vector<size_t> freeSlots;              // Available slots for reuse
         std::atomic<size_t> nextSlot{ 0 };          // Thread-safe slot allocation
         mutable std::mutex poolMutex;               // Protect pool operations
 
+        static constexpr size_t MAX_DEALLOCATIONS_PER_FRAME = 8;
+
         size_t allocateChunk(int chunkX, int chunkY, int chunkZ);
-        void deallocateChunk(size_t index, BgfxRenderer& renderer);
+        void processPendingDeallocations();
         Chunk* getChunk(size_t index);
         const Chunk* getChunk(size_t index) const;
         void clear();

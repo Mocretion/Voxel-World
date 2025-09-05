@@ -590,9 +590,9 @@ void Chunk::uploadToBufferPool(DynamicBufferPool* bufferPool)
         uploadedToGPU = true;
         gpuResourcesDirty = false;
 
-        std::cout << "[Chunk] Uploaded to buffer pool - Pair: " << bufferAllocation.bufferPairIndex
-            << ", Vertex offset: " << bufferAllocation.vertexOffset
-            << ", Index offset: " << bufferAllocation.indexOffset << std::endl;
+        ///std::cout << "[Chunk] Uploaded to buffer pool - Pair: " << bufferAllocation.bufferPairIndex
+        ///    << ", Vertex offset: " << bufferAllocation.vertexOffset
+        ///    << ", Index offset: " << bufferAllocation.indexOffset << std::endl;
     }
     else
     {
@@ -602,7 +602,7 @@ void Chunk::uploadToBufferPool(DynamicBufferPool* bufferPool)
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::high_resolution_clock::now() - startTime);
 
-    std::cout << "[CHUNK] === BUFFER UPLOAD COMPLETE === " << duration << std::endl;
+    ///std::cout << "[CHUNK] === BUFFER UPLOAD COMPLETE === " << duration << std::endl;
 }
 
 void Chunk::cleanupFromBufferPool(DynamicBufferPool* bufferPool)

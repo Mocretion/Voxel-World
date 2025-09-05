@@ -1,222 +1,90 @@
-#include "DynamicBufferPool.h"
+﻿#include "DynamicBufferPool.h"
 #include "Chunk.h"
 #include <algorithm>
 #include <cstring>
 #include <iostream>
-#include <cmath>
+#include <chrono>
 
 // ============================================================================
-// BuddyAllocator Implementation
+// FreeListAllocator Implementation - Much simpler than BuddyAllocator!
 // ============================================================================
 
-DynamicBufferPool::BuddyAllocator::BuddyAllocator(size_t totalSize)
-    : totalSize(totalSize), minBlockSize(1024)  // Minimum 1KB blocks
+DynamicBufferPool::FreeListAllocator::FreeListAllocator(size_t totalSize)
+    : totalSize(totalSize)
 {
-    // Calculate max level (root is level 0)
-    maxLevel = 0;
-    size_t size = totalSize;
-    while (size > minBlockSize)
+    // Start with one big free block
+    blocks.emplace_back(0, totalSize, true);
+
+    std::cout << "[FREELIST] Initialized with size: " << totalSize << " bytes" << std::endl;
+}
+
+DynamicBufferPool::FreeListAllocator::Block*
+DynamicBufferPool::FreeListAllocator::allocate(size_t size)
+{
+    // Align size to 16 bytes for better performance
+    size = (size + 15) & ~15;
+
+    // Find a free block that fits (first-fit strategy)
+    auto it = findFreeBlock(size);
+    if (it == blocks.end())
     {
-        size /= 2;
-        maxLevel++;
+        std::cerr << "[FREELIST] No space for allocation of size: " << size << std::endl;
+        return nullptr;
     }
 
-    // Initialize free lists for each level
-    freeLists.resize(maxLevel + 1);
-
-    // Create root block
-    root = createBlock(0, totalSize, 0);
-    root->isFree = true;
-    freeLists[0].push_back(root);
-
-    std::cout << "[BUDDY] Initialized with total size: " << totalSize
-        << ", max level: " << maxLevel
-        << ", min block size: " << minBlockSize << std::endl;
-}
-
-DynamicBufferPool::BuddyAllocator::~BuddyAllocator()
-{
-    // Blocks are managed by unique_ptr in blockPool
-}
-
-DynamicBufferPool::BuddyAllocator::Block*
-DynamicBufferPool::BuddyAllocator::createBlock(size_t offset, size_t size, int level)
-{
-    auto block = std::make_unique<Block>();
-    block->offset = offset;
-    block->size = size;
-    block->isFree = false;
-    block->buddy = nullptr;
-    block->parent = nullptr;
-    block->left = nullptr;
-    block->right = nullptr;
-    block->level = level;
-
-    Block* ptr = block.get();
-    blockPool.push_back(std::move(block));
-    return ptr;
-}
-
-size_t DynamicBufferPool::BuddyAllocator::roundUpToPowerOfTwo(size_t size) const
-{
-    if (size <= minBlockSize) return minBlockSize;
-
-    // Round up to next power of 2
-    size_t power = 1;
-    while (power < size)
+    // If the block is exactly the right size, just mark it as used
+    if (it->size == size)
     {
-        power *= 2;
-    }
-    return power;
-}
-
-int DynamicBufferPool::BuddyAllocator::getSizeLevel(size_t size) const
-{
-    // FIX: Level 0 is the largest (full size), higher levels are smaller
-    // We need to find the level where block size >= requested size
-    size_t blockSize = totalSize;
-
-    for (int level = 0; level <= maxLevel; level++)
-    {
-        if (blockSize <= size)
-        {
-            // This level's block size is small enough to fit the request
-            return level;
-        }
-        blockSize /= 2;
+        it->isFree = false;
+        return &(*it);
     }
 
-    return maxLevel;  // Smallest possible block
+    // Otherwise, split the block
+    size_t remainingSize = it->size - size;
+    size_t remainingOffset = it->offset + size;
+
+    // Resize the current block to the allocated size
+    it->size = size;
+    it->isFree = false;
+
+    // Insert a new free block for the remaining space
+    blocks.insert(std::next(it), Block(remainingOffset, remainingSize, true));
+
+    return &(*it);
 }
 
-DynamicBufferPool::BuddyAllocator::Block*
-DynamicBufferPool::BuddyAllocator::allocate(size_t size)
-{
-    size_t requiredSize = roundUpToPowerOfTwo(size);
-    int targetLevel = getSizeLevel(requiredSize);
-
-    // Find a free block at target level or lower (larger blocks)
-    for (int level = targetLevel; level >= 0; level--)
-    {
-        if (!freeLists[level].empty())
-        {
-            Block* block = freeLists[level].back();
-            freeLists[level].pop_back();
-
-            // Mark as not free immediately
-            block->isFree = false;
-
-            // Split block down to target level if needed
-            while (block->level < targetLevel)
-            {
-                // Split will add both children to free list
-                splitBlock(block);
-
-                // Take the left child from free list and use it
-                block = block->left;
-
-                // Remove the left child from free list since we're using it
-                auto& childFreeList = freeLists[block->level];
-                childFreeList.erase(std::remove(childFreeList.begin(), childFreeList.end(), block),
-                    childFreeList.end());
-                block->isFree = false;
-            }
-
-            return block;
-        }
-    }
-
-    std::cerr << "[BUDDY] ALLOCATION FAILED - No space available for size: " << size << std::endl;
-    return nullptr;  // No space available
-}
-
-void DynamicBufferPool::BuddyAllocator::splitBlock(Block* block)
-{
-    if (block->level >= maxLevel)
-    {
-        std::cerr << "[BUDDY] Cannot split - already at max level: " << block->level << std::endl;
-        return;
-    }
-
-    // CRITICAL: Remove block from free list before splitting!
-    // The parent block should not be in any free list once it has children
-    auto& parentFreeList = freeLists[block->level];
-    parentFreeList.erase(std::remove(parentFreeList.begin(), parentFreeList.end(), block),
-        parentFreeList.end());
-
-    size_t halfSize = block->size / 2;
-
-    // Create left and right children
-    block->left = createBlock(block->offset, halfSize, block->level + 1);
-    block->right = createBlock(block->offset + halfSize, halfSize, block->level + 1);
-
-    block->left->parent = block;
-    block->right->parent = block;
-    block->left->buddy = block->right;
-    block->right->buddy = block->left;
-
-    // IMPORTANT: Both children start as free until one is allocated
-    block->left->isFree = true;
-    block->right->isFree = true;
-
-    // Add BOTH children to free list initially
-    // The allocation function will remove the one it uses
-    freeLists[block->level + 1].push_back(block->left);
-    freeLists[block->level + 1].push_back(block->right);
-}
-
-void DynamicBufferPool::BuddyAllocator::deallocate(Block* block)
+void DynamicBufferPool::FreeListAllocator::deallocate(Block* block)
 {
     if (!block || block->isFree)
     {
-        std::cerr << "[BUDDY] Deallocate called on null or already free block" << std::endl;
+        std::cerr << "[FREELIST] Invalid deallocation attempt" << std::endl;
         return;
     }
 
-    std::cout << "[BUDDY] Deallocating block - offset: " << block->offset
-        << ", size: " << block->size
-        << ", level: " << block->level << std::endl;
+    // Find the block in our list
+    auto it = std::find_if(blocks.begin(), blocks.end(),
+        [block](const Block& b) { return &b == block; });
 
-    block->isFree = true;
-
-    // Try to merge with buddy
-    Block* current = block;
-    while (current->parent && current->buddy && current->buddy->isFree)
+    if (it == blocks.end())
     {
-        std::cout << "[BUDDY] Merging with buddy at offset: " << current->buddy->offset << std::endl;
-
-        Block* parent = current->parent;
-        Block* buddy = current->buddy;
-
-        // Remove both blocks from free lists
-        auto& freeList = freeLists[current->level];
-        freeList.erase(std::remove(freeList.begin(), freeList.end(), current), freeList.end());
-        freeList.erase(std::remove(freeList.begin(), freeList.end(), buddy), freeList.end());
-
-        // Clear parent's children
-        parent->left = nullptr;
-        parent->right = nullptr;
-        parent->isFree = true;
-
-        current = parent;
+        std::cerr << "[FREELIST] Block not found in allocator" << std::endl;
+        return;
     }
 
-    // Add the final block to free list
-    freeLists[current->level].push_back(current);
+    // Mark as free
+    it->isFree = true;
 
-    std::cout << "[BUDDY] Deallocation complete - final block at level: " << current->level
-        << ", offset: " << current->offset << std::endl;
+    // Coalesce with adjacent free blocks
+    coalesceBlocks();
 }
 
-bool DynamicBufferPool::BuddyAllocator::canAllocate(size_t size) const
+bool DynamicBufferPool::FreeListAllocator::canAllocate(size_t size) const
 {
-    size_t requiredSize = roundUpToPowerOfTwo(size);
-    int targetLevel = getSizeLevel(requiredSize);
+    size = (size + 15) & ~15;  // Apply same alignment
 
-    // Check if any free block exists at target level or lower (larger)
-    for (int level = targetLevel; level >= 0; level--)
+    for (const auto& block : blocks)
     {
-        if (!freeLists[level].empty())
+        if (block.isFree && block.size >= size)
         {
             return true;
         }
@@ -224,30 +92,75 @@ bool DynamicBufferPool::BuddyAllocator::canAllocate(size_t size) const
     return false;
 }
 
-float DynamicBufferPool::BuddyAllocator::getFragmentation() const
+float DynamicBufferPool::FreeListAllocator::getFragmentation() const
 {
     size_t totalFree = 0;
     size_t largestFree = 0;
 
-    for (const auto& freeList : freeLists)
+    for (const auto& block : blocks)
     {
-        for (const Block* block : freeList)
+        if (block.isFree)
         {
-            totalFree += block->size;
-            largestFree = std::max(largestFree, block->size);
+            totalFree += block.size;
+            largestFree = std::max(largestFree, block.size);
         }
     }
 
     if (totalFree == 0) return 0.0f;
+
+    // Fragmentation: 1.0 means completely fragmented, 0.0 means no fragmentation
     return 1.0f - (static_cast<float>(largestFree) / static_cast<float>(totalFree));
 }
 
-void DynamicBufferPool::BuddyAllocator::defragment(
-    std::function<void(size_t oldOffset, size_t newOffset, size_t size)> moveCallback)
+size_t DynamicBufferPool::FreeListAllocator::getTotalFreeSpace() const
 {
-    // For buddy allocator, defragmentation requires rebuilding the entire structure
-    // This is complex and may not be worth it - consider if really needed
-    std::cout << "[BUDDY] Defragmentation requested but not implemented for buddy allocator" << std::endl;
+    size_t totalFree = 0;
+    for (const auto& block : blocks)
+    {
+        if (block.isFree)
+        {
+            totalFree += block.size;
+        }
+    }
+    return totalFree;
+}
+
+void DynamicBufferPool::FreeListAllocator::coalesceBlocks()
+{
+    auto it = blocks.begin();
+    while (it != blocks.end())
+    {
+        if (!it->isFree)
+        {
+            ++it;
+            continue;
+        }
+
+        // Look for adjacent free block
+        auto next = std::next(it);
+        if (next != blocks.end() && next->isFree &&
+            (it->offset + it->size == next->offset))
+        {
+            // Merge blocks
+            it->size += next->size;
+            blocks.erase(next);
+            // Don't increment iterator, check again for more merges
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+
+std::list<DynamicBufferPool::FreeListAllocator::Block>::iterator
+DynamicBufferPool::FreeListAllocator::findFreeBlock(size_t size)
+{
+    // First-fit strategy: find first block that's big enough
+    return std::find_if(blocks.begin(), blocks.end(),
+        [size](const Block& block) {
+            return block.isFree && block.size >= size;
+        });
 }
 
 // ============================================================================
@@ -256,8 +169,6 @@ void DynamicBufferPool::BuddyAllocator::defragment(
 
 DynamicBufferPool::BufferPair::BufferPair()
 {
-    vertexStagingBuffer.reserve(VERTEX_BUFFER_SIZE);
-    indexStagingBuffer.reserve(INDEX_BUFFER_SIZE);
 }
 
 DynamicBufferPool::BufferPair::~BufferPair()
@@ -298,13 +209,13 @@ void DynamicBufferPool::BufferPair::initialize()
     // Create indirect buffer for draw commands
     indirectBuffer = bgfx::createIndirectBuffer(MAX_CHUNKS_PER_BUFFER);
 
-    // Initialize buddy allocators
-    vertexAllocator = std::make_unique<BuddyAllocator>(VERTEX_BUFFER_SIZE);
-    indexAllocator = std::make_unique<BuddyAllocator>(INDEX_BUFFER_SIZE);
+    // Initialize free list allocators (much simpler than buddy!)
+    vertexAllocator = std::make_unique<FreeListAllocator>(VERTEX_BUFFER_SIZE);
+    indexAllocator = std::make_unique<FreeListAllocator>(INDEX_BUFFER_SIZE);
 
     drawCommands[0] = 0;
 
-    std::cout << "[BUFFER_PAIR] Initialization complete" << std::endl;
+    std::cout << "[BUFFER_PAIR] Initialization complete with FreeListAllocators" << std::endl;
 }
 
 void DynamicBufferPool::BufferPair::cleanup()
@@ -346,7 +257,7 @@ void DynamicBufferPool::BufferPair::cleanup()
 
 DynamicBufferPool::DynamicBufferPool()
 {
-    std::cout << "[POOL] Initializing DynamicBufferPool" << std::endl;
+    std::cout << "[POOL] Initializing DynamicBufferPool with FreeListAllocator" << std::endl;
 
     // Start with one buffer pair
     auto firstPair = std::make_unique<BufferPair>();
@@ -372,7 +283,6 @@ DynamicBufferPool::findOrCreateBufferPair(size_t vertexSize, size_t indexSize)
         if (pair->vertexAllocator->canAllocate(vertexSize) &&
             pair->indexAllocator->canAllocate(indexSize))
         {
-            std::cout << "[POOL] Using existing buffer pair #" << i << std::endl;
             return pair.get();
         }
     }
@@ -400,10 +310,6 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
     size_t vertexSize = vertexCount * sizeof(Vertex);
     size_t indexSize = indexCount * sizeof(uint32_t);
 
-    // Ensure proper alignment
-    vertexSize = (vertexSize + 15) & ~15;  // Align to 16 bytes
-    indexSize = (indexSize + 15) & ~15;
-
     // Find or create suitable buffer pair
     BufferPair* pair = findOrCreateBufferPair(vertexSize, indexSize);
     if (!pair)
@@ -425,17 +331,18 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
 
     if (pairIndex == SIZE_MAX)
     {
-        std::cerr << "[POOL] CRITICAL ERROR: Could not find buffer pair index!" << std::endl;
+        std::cerr << "[POOL] Could not find buffer pair index!" << std::endl;
         return BufferAllocation();
     }
 
-    // Allocate from buddy allocators
+    // Allocate from free list allocators (much simpler!)
     auto* vertexBlock = pair->vertexAllocator->allocate(vertexSize);
     auto* indexBlock = pair->indexAllocator->allocate(indexSize);
 
     if (!vertexBlock || !indexBlock)
     {
-        std::cerr << "[POOL] Allocation failed in buddy allocators!" << std::endl;
+        std::cerr << "[POOL] Allocation failed! Vertex: " << (vertexBlock ? "OK" : "FAIL")
+            << ", Index: " << (indexBlock ? "OK" : "FAIL") << std::endl;
 
         // Cleanup partial allocation
         if (vertexBlock) pair->vertexAllocator->deallocate(vertexBlock);
@@ -444,19 +351,9 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
         return BufferAllocation();
     }
 
-    // Validate alignment
-    if (vertexBlock->offset % sizeof(Vertex) != 0)
-    {
-        std::cerr << "[POOL] WARNING: Vertex offset not aligned: " << vertexBlock->offset << std::endl;
-    }
-    if (indexBlock->offset % sizeof(uint32_t) != 0)
-    {
-        std::cerr << "[POOL] WARNING: Index offset not aligned: " << indexBlock->offset << std::endl;
-    }
-
     // Create allocation record
     BufferAllocation allocation;
-    allocation.bufferPairIndex = pairIndex;  // FIX: Use actual pair index
+    allocation.bufferPairIndex = pairIndex;
     allocation.vertexOffset = vertexBlock->offset;
     allocation.vertexCount = vertexCount;
     allocation.indexOffset = indexBlock->offset;
@@ -472,10 +369,13 @@ DynamicBufferPool::allocateChunk(Chunk* chunk, size_t vertexCount, size_t indexC
     pair->activeChunks++;
     pair->needsIndirectUpdate = true;
 
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - startTime);
 
-    std::cout << "[POOL] === ALLOCATION COMPLETE === " << duration << std::endl;
+    //std::cout << "[POOL] Allocation complete in " << duration.count() << "micS - "
+    //    << "Pair: " << pairIndex
+    //    << ", V-offset: " << allocation.vertexOffset
+    //    << ", I-offset: " << allocation.indexOffset << std::endl;
 
     return allocation;
 }
@@ -506,15 +406,11 @@ void DynamicBufferPool::uploadToBuffer(BufferPair* pair, const BufferAllocation&
 
 void DynamicBufferPool::deallocateChunk(Chunk* chunk, const BufferAllocation& allocation)
 {
-    if (!allocation.isValid()) return;
-
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    std::lock_guard<std::mutex> lock(poolMutex);
+    if (!allocation.isValid()) return;
 
-    std::cout << "\n[POOL] === DEALLOCATING CHUNK ===" << std::endl;
-    std::cout << "[POOL] Chunk (" << chunk->getChunkX() << ", "
-        << chunk->getChunkY() << ", " << chunk->getChunkZ() << ")" << std::endl;
+    std::lock_guard<std::mutex> lock(poolMutex);
 
     if (allocation.bufferPairIndex >= bufferPairs.size())
     {
@@ -524,17 +420,16 @@ void DynamicBufferPool::deallocateChunk(Chunk* chunk, const BufferAllocation& al
 
     BufferPair* pair = bufferPairs[allocation.bufferPairIndex].get();
 
-
-    // Deallocate from buddy allocators
+    // Deallocate from free list allocators (simple!)
     if (allocation.vertexBlockHandle)
     {
         pair->vertexAllocator->deallocate(
-            static_cast<BuddyAllocator::Block*>(allocation.vertexBlockHandle));
+            static_cast<FreeListAllocator::Block*>(allocation.vertexBlockHandle));
     }
     if (allocation.indexBlockHandle)
     {
         pair->indexAllocator->deallocate(
-            static_cast<BuddyAllocator::Block*>(allocation.indexBlockHandle));
+            static_cast<FreeListAllocator::Block*>(allocation.indexBlockHandle));
     }
 
     // Remove from chunk allocations
@@ -542,11 +437,10 @@ void DynamicBufferPool::deallocateChunk(Chunk* chunk, const BufferAllocation& al
     pair->activeChunks--;
     pair->needsIndirectUpdate = true;
 
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - startTime);
 
-    std::cout << "[POOL] Deallocation complete. Active chunks in pair: " << pair->activeChunks << std::endl;
-    std::cout << "[POOL] === DEALLOCATION COMPLETE === Active chunks in pair: " << pair->activeChunks << " Dealloc time: " << duration << std::endl;
+    //std::cout << "[POOL] Deallocated a chunk. Active chunks in pair: " << pair->activeChunks << ". Dealloc took " << duration << "microS" << std::endl;
 }
 
 DynamicBufferPool::BufferAllocation
@@ -554,15 +448,11 @@ DynamicBufferPool::updateChunk(Chunk* chunk, const BufferAllocation& oldAllocati
     size_t newVertexCount, size_t newIndexCount,
     const void* vertexData, const void* indexData)
 {
-    std::cout << "[POOL] Updating chunk allocation" << std::endl;
-
     // If size fits in existing allocation, update in place
     if (oldAllocation.isValid() &&
         newVertexCount <= oldAllocation.vertexCount &&
         newIndexCount <= oldAllocation.indexCount)
     {
-        std::cout << "[POOL] Updating in-place" << std::endl;
-
         std::lock_guard<std::mutex> lock(poolMutex);
 
         BufferPair* pair = bufferPairs[oldAllocation.bufferPairIndex].get();
@@ -578,7 +468,6 @@ DynamicBufferPool::updateChunk(Chunk* chunk, const BufferAllocation& oldAllocati
     }
 
     // Otherwise, deallocate and reallocate
-    std::cout << "[POOL] Reallocating (size doesn't fit)" << std::endl;
     deallocateChunk(chunk, oldAllocation);
     return allocateChunk(chunk, newVertexCount, newIndexCount, vertexData, indexData);
 }
@@ -590,9 +479,6 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
     // Reset arrays
     memset(pair->drawCommands, 0, (MAX_CHUNKS_PER_BUFFER * 4 + 1) * sizeof(uint32_t));
     memset(pair->chunkInstanceData, 0, MAX_CHUNKS_PER_BUFFER * sizeof(ChunkInstanceData));
-
-    std::cout << "\n[POOL] === UPDATING INDIRECT BUFFER ===" << std::endl;
-    std::cout << "[POOL] Active chunks: " << pair->chunkAllocations.size() << std::endl;
 
     // Build draw commands from chunk allocations
     uint32_t cmdIndex = 1;
@@ -606,7 +492,7 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
             break;
         }
 
-        // Validate offsets
+        // Calculate offsets
         uint32_t indexOffset = allocation.indexOffset / sizeof(uint32_t);
         uint32_t vertexOffset = allocation.vertexOffset / sizeof(Vertex);
 
@@ -633,12 +519,9 @@ void DynamicBufferPool::updateIndirectBuffer(BufferPair* pair)
 
         bgfx::update(pair->instanceBuffer, 0,
             bgfx::makeRef(pair->chunkInstanceData, pair->drawCommands[0] * sizeof(ChunkInstanceData)));
-
-        std::cout << "[POOL] Updated buffers with " << pair->drawCommands[0] << " draw commands" << std::endl;
     }
 
     pair->needsIndirectUpdate = false;
-    std::cout << "[POOL] === INDIRECT BUFFER UPDATE COMPLETE ===" << std::endl;
 }
 
 void DynamicBufferPool::renderAll(bgfx::ProgramHandle computeProgram, bgfx::ProgramHandle renderProgram, bgfx::UniformHandle chunkPosUniform)
@@ -683,10 +566,13 @@ void DynamicBufferPool::defragmentBuffers(float fragmentationThreshold)
 
         if (vertexFrag > fragmentationThreshold || indexFrag > fragmentationThreshold)
         {
-            std::cout << "[POOL] Buffer pair fragmentation - vertex: "
-                << vertexFrag << ", index: " << indexFrag << std::endl;
-            // Defragmentation for buddy allocator is complex and may not be needed
-            // Consider if this is really necessary for your use case
+            std::cout << "[POOL] Buffer fragmentation - vertex: "
+                << (vertexFrag * 100) << "%, index: "
+                << (indexFrag * 100) << "%" << std::endl;
+
+            // With FreeListAllocator, coalescing happens automatically on deallocation
+            // For more aggressive defragmentation, we'd need to move allocations around
+            // which requires updating all the chunks - leaving this for future optimization
         }
     }
 }

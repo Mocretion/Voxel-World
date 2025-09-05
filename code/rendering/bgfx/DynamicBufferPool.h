@@ -6,16 +6,17 @@
 #include <memory>
 #include <mutex>
 #include <cstdint>
-#include <functional>
+#include <list>
+#include <algorithm>
 
 class Chunk;
 
 class DynamicBufferPool {
 public:
-    static constexpr size_t TOTAL_PAIR_SIZE = 67108864;     // 67 MB MB
-    static constexpr size_t VERTEX_BUFFER_SIZE = 33554432;  // ~33.55 MB (4.194.304 vertices)
-    static constexpr size_t INDEX_BUFFER_SIZE = 33554432;   // ~33.55  MB
-    static constexpr size_t MAX_CHUNKS_PER_BUFFER = 2048;     // Maximum chunks per buffer pair
+    static constexpr size_t TOTAL_PAIR_SIZE = 64000000;     // 64 MB
+    static constexpr size_t VERTEX_BUFFER_SIZE = 36000000;  // ~36 MB
+    static constexpr size_t INDEX_BUFFER_SIZE = 27000000;   // ~27 MB (=63MB)
+    static constexpr size_t MAX_CHUNKS_PER_BUFFER = 2048;   // Maximum chunks per buffer pair
 
     struct BufferAllocation {
         size_t bufferPairIndex = SIZE_MAX;
@@ -24,7 +25,7 @@ public:
         size_t indexOffset = 0;
         size_t indexCount = 0;
 
-        // Buddy system block handles
+        // Free list block handles
         void* vertexBlockHandle = nullptr;
         void* indexBlockHandle = nullptr;
 
@@ -32,46 +33,40 @@ public:
     };
 
 private:
-    // Buddy Allocator for managing buffer memory
-    class BuddyAllocator {
+    // Simple Free List Allocator for managing buffer memory
+    class FreeListAllocator {
     public:
         struct Block {
             size_t offset;
             size_t size;
             bool isFree;
-            Block* buddy;
-            Block* parent;
-            Block* left;
-            Block* right;
-            int level;  // Level in buddy tree (0 = full size)
+
+            Block(size_t off, size_t sz, bool free = true)
+                : offset(off), size(sz), isFree(free)
+            {
+            }
         };
 
-        BuddyAllocator(size_t totalSize);
-        ~BuddyAllocator();
-
+        FreeListAllocator(size_t totalSize);
+        ~FreeListAllocator() = default;
+        
         Block* allocate(size_t size);
         void deallocate(Block* block);
         bool canAllocate(size_t size) const;
-
-        // Defragmentation
-        void defragment(std::function<void(size_t oldOffset, size_t newOffset, size_t size)> moveCallback);
         float getFragmentation() const;
 
-        std::vector<std::vector<Block*>> freeLists;  // Free lists per level
+        // Get total free space
+        size_t getTotalFreeSpace() const;
 
     private:
         size_t totalSize;
-        size_t minBlockSize;
-        int maxLevel;
-        Block* root;
-        std::vector<std::unique_ptr<Block>> blockPool;
+        std::list<Block> blocks;  // Sorted by offset
 
-        size_t roundUpToPowerOfTwo(size_t size) const;
-        int getSizeLevel(size_t size) const;
-        Block* createBlock(size_t offset, size_t size, int level);
-        void splitBlock(Block* block);
-        void mergeBlock(Block* block);
-        Block* findBuddy(Block* block) const;
+        // Helper to merge adjacent free blocks
+        void coalesceBlocks();
+
+        // Find best fitting free block (first-fit strategy)
+        std::list<Block>::iterator findFreeBlock(size_t size);
     };
 
     struct ChunkInstanceData {
@@ -104,9 +99,8 @@ private:
         bgfx::IndirectBufferHandle indirectBuffer = BGFX_INVALID_HANDLE;
         bgfx::DynamicVertexBufferHandle instanceBuffer = BGFX_INVALID_HANDLE;
 
-
-        std::unique_ptr<BuddyAllocator> vertexAllocator;
-        std::unique_ptr<BuddyAllocator> indexAllocator;
+        std::unique_ptr<FreeListAllocator> vertexAllocator;
+        std::unique_ptr<FreeListAllocator> indexAllocator;
 
         float* chunkIndirectData = new float[MAX_CHUNKS_PER_BUFFER * 4];
         ChunkInstanceData* chunkInstanceData = new ChunkInstanceData[MAX_CHUNKS_PER_BUFFER];
@@ -119,10 +113,6 @@ private:
         // k + 3 is vertexOffset;
         uint32_t* drawCommands = new uint32_t[MAX_CHUNKS_PER_BUFFER * 4 + 1];
         std::unordered_map<Chunk*, BufferAllocation> chunkAllocations;
-
-        // Staging buffers for defragmentation
-        std::vector<uint8_t> vertexStagingBuffer;
-        std::vector<uint8_t> indexStagingBuffer;
 
         bool needsIndirectUpdate = false;
         size_t activeChunks = 0;
@@ -170,9 +160,4 @@ private:
     void uploadToBuffer(BufferPair* pair, const BufferAllocation& allocation,
         const void* vertexData, const void* indexData);
     void updateIndirectBuffer(BufferPair* pair);
-    void defragmentPair(BufferPair* pair);
-
-    // Move data during defragmentation
-    void moveBufferData(BufferPair* pair, size_t oldOffset, size_t newOffset,
-        size_t size, bool isVertexBuffer);
 };

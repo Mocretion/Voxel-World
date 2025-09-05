@@ -87,20 +87,29 @@ size_t ChunkManager::ChunkPool::allocateChunk(int chunkX, int chunkY, int chunkZ
     return index;
 }
 
-void ChunkManager::ChunkPool::deallocateChunk(size_t index, BgfxRenderer& renderer)
+void ChunkManager::ChunkPool::processPendingDeallocations()
 {
-    std::lock_guard<std::mutex> lock(poolMutex);
+    std::lock_guard<std::mutex> lock(deallocationMutex);
 
-    if (index < chunks.size() && allocated[index])
+    size_t processed = 0;
+
+    while (!pendingDeallocations.empty() && processed < MAX_DEALLOCATIONS_PER_FRAME)
     {
-        if (chunks[index])
+        const auto& pending = pendingDeallocations.front();
+
+        // Actually deallocate the chunk (expensive operation)
         {
-            chunks[index]->cleanupFromBufferPool(renderer.getBufferPool());
+            std::lock_guard<std::mutex> poolLock(poolMutex);
+            if (pending < chunks.size())
+            {
+                chunks[pending].reset(); // THE EXPENSIVE OPERATION
+                allocated[pending] = false;
+                freeSlots.push_back(pending);
+            }
         }
 
-        chunks[index].reset();  // Free the unique_ptr
-        allocated[index] = false;
-        freeSlots.push_back(index);
+        pendingDeallocations.pop();
+        processed++;
     }
 }
 
@@ -311,6 +320,11 @@ void ChunkManager::generateChunks()
             generateChunksWorker(i);
         });
     }
+}
+
+void ChunkManager::processChunkDeallocations()
+{
+    chunkPool.processPendingDeallocations();
 }
 
 void ChunkManager::generateChunksWorker(int threadId)
@@ -554,6 +568,8 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
 
     // Remove distant chunks
     {
+        auto startTime = std::chrono::high_resolution_clock::now();
+
         std::unique_lock<std::shared_mutex> lock(poolIndexMutex);
         for (auto& key : chunkDataToRemove)
         {
@@ -561,20 +577,28 @@ int ChunkManager::removeDistantChunks(int centerX, int centerY, int centerZ, int
             if (it != chunkKeyToPoolIndex.end())
             {
                 // Clean up bgfx resources before deallocating
+
                 Chunk* chunk = chunkPool.getChunk(it->second);
                 if (chunk)
                 {
                     chunk->cleanupFromBufferPool(renderer.getBufferPool());
                 }
 
-                chunkPool.deallocateChunk(it->second, renderer);
                 chunkKeyToPoolIndex.erase(it);
-
-                // Remove from queues if present
-                meshingQueue.remove(key);
                 generationQueue.remove(key);
+                meshingQueue.remove(key);
+
+                chunkPool.pendingDeallocations.emplace(it->second);
+                
             }
         }
+
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - startTime);
+
+        std::cout << "======== [FAST] Removed chunk data in " << duration << std::endl;
+
+        startTime = std::chrono::high_resolution_clock::now();
 
         for (auto& key : chunkMeshToRemove)
         {

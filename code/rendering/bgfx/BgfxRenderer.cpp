@@ -267,7 +267,7 @@ void BgfxRenderer::endFrame()
 void BgfxRenderer::renderChunks(const std::vector<Chunk*>& chunks)
 {
     chunksToRender = chunks;
-    std::cout << "[BGFX] Prepared " << chunks.size() << " chunks for rendering" << std::endl;
+    //std::cout << "[BGFX] Prepared " << chunks.size() << " chunks for rendering" << std::endl;
 }
 
 void BgfxRenderer::updateUniforms(const UniformBufferObject& ubo)
